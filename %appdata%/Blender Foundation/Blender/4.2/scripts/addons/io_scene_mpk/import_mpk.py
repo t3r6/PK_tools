@@ -1,10 +1,11 @@
-import io
-import os
-import bpy
-import struct
 import array
+import bpy
+import io
 import mathutils
+import os
 import re
+import struct
+import time
 from bpy_extras import image_utils
 from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 from dataclasses import dataclass
@@ -76,7 +77,10 @@ def load(operator, context, filepath="", use_lightmaps=True, use_blendmaps=True,
 
 def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
 
-    print("importing MPK: %r..." % (filepath), end="")
+    print("importing MPK: %r..." % (filepath))
+
+    duration = time.time()
+    context.window.cursor_set('WAIT')
 
     if bpy.ops.object.select_all.poll():
         bpy.ops.object.select_all(action='DESELECT')
@@ -114,12 +118,16 @@ def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
 
     file = open(filepath, 'rb')
 
+    # read_mesh(file)
     try:
         read_mesh(file)
     except:
         MessageBox('something went wrong!', title='oops', icon='ERROR')
 
     file.close()
+
+    context.window.cursor_set('DEFAULT')
+    print("MPK import time: %.2f" % (time.time() - duration))
 
 
 def read_mesh(file):
@@ -417,7 +425,7 @@ def readString(file):
     outstring = file.read(strlen)
     return outstring[:-1].decode('iso-8859-1')
 
-
+	
 def read_short(file):
     temp_data = file.read(SZ_U_SHORT)
     return struct.unpack('<H', temp_data)[0]
