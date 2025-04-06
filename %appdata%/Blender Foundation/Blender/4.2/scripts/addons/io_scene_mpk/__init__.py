@@ -9,6 +9,7 @@ from bpy_extras.io_utils import (
 from bpy.props import (
     BoolProperty,
     StringProperty,
+    IntProperty,
 )
 
 
@@ -44,17 +45,17 @@ class ImportMPK(bpy.types.Operator, ImportHelper):
 
     use_lightmaps : BoolProperty(
             name = "Enable lightmaps",
-            description = "Add lightmaps to materials",
+            description = "Adds lightmaps to materials",
             default = True )
 
     use_blendmaps : BoolProperty(
             name = "Enable blendmaps",
-            description = "Add blendmaps to materials",
+            description = "Adds blendmaps to materials",
             default = True )
 
     remove_doubles : BoolProperty(
             name = "Merge vertices",
-            description = "Remove double vertices",
+            description = "Removes double vertices",
             default = False )
 
     def execute(self, context):
@@ -71,8 +72,32 @@ class ImportMPK(bpy.types.Operator, ImportHelper):
         box.prop( self, 'remove_doubles' )
 
 
+def _update_options(self, context):
+    val = (self.use_all << 2 | self.use_selection << 1 | self.use_visible << 0)
+    match (self.opt ^ val):
+        case 0b100:
+            if (val & 0b100):
+                if self.use_selection: self.use_selection = False
+                if self.use_visible: self.use_visible = False
+            else: self.use_all = True
+            self.opt = 0b100
+        case 0b010:
+            if (val & 0b010):
+                if self.use_all: self.use_all = False
+                if self.use_visible: self.use_visible = False
+            else: self.use_selection = True
+            self.opt = 0b010
+        case 0b001:
+            if (val & 0b001):
+                if self.use_all: self.use_all = False
+                if self.use_selection: self.use_selection = False
+            else: self.use_visible = True
+            self.opt = 0b001
+
+
 @orientation_helper(axis_forward='Y', axis_up='Z')
 class ExportMPK(bpy.types.Operator, ExportHelper):
+    """Export to MPK file format (.mpk)"""
     bl_idname = "export_scene.pkmpk"
     bl_label = 'Export MPK'
     bl_options = {'PRESET', 'UNDO'}
@@ -84,12 +109,26 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
             name = "Optimize",
             description = "Remove double vertices",
             default = False )
+            
+    opt : IntProperty( default = 0b100 )
 
-    
+    use_all: BoolProperty(
+            name="All",
+            description="Export all objects",
+            default = True,
+            update = _update_options )
+
     use_selection: BoolProperty(
             name="Selection",
             description="Export selected objects only",
-            default = False )
+            default = False,
+            update = _update_options )
+
+    use_visible: BoolProperty(
+            name="Visible",
+            description="Export visible objects only",
+            default = False,
+            update = _update_options )
 
     def execute(self, context):
         from . import export_mpk
@@ -98,6 +137,7 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
                                             "axis_up",
                                             "filter_glob",
                                             "check_existing",
+                                            "opt"
                                             ))
 
         global_matrix = axis_conversion(from_forward=self.axis_forward,
@@ -110,7 +150,9 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
     def draw(self, context):
         box = self.layout.box()
         box.prop( self, 'use_optimization' )
+        box.prop( self, 'use_all' )
         box.prop( self, 'use_selection' )
+        box.prop( self, 'use_visible' )
 
 
 # Add to a menu

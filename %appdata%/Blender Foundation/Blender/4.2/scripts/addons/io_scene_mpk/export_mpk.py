@@ -1,8 +1,6 @@
 import array
 import bmesh
 import bpy
-import io
-import os
 import mathutils
 import numpy as np
 import struct
@@ -10,16 +8,17 @@ import time
 import bpy_extras
 from bpy_extras import image_utils
 from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
+from pathlib import Path
 
 
-def load(operator, context, filepath="", use_optimization=True, use_selection=False, global_matrix=None):
+def load(operator, context, filepath="", use_optimization=True, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
 
-    save_mpk(filepath, context, use_optimization, use_selection, global_matrix)
+    save_mpk(filepath, context, use_optimization, use_all, use_selection, use_visible, global_matrix)
 
     return {'FINISHED'}
 
 
-def save_mpk(filepath, context, use_optimization, use_selection, global_matrix):
+def save_mpk(filepath, context, use_optimization, use_all, use_selection, use_visible, global_matrix):
 
     print("exporting MPK: %r..." % (filepath))
 
@@ -28,13 +27,14 @@ def save_mpk(filepath, context, use_optimization, use_selection, global_matrix):
 
     file = open(filepath, 'wb')
 
-    meshoffset = doexp(file, context, use_optimization, use_selection, global_matrix)
-
-    for i in range(len(meshoffset)):
-        write_long(file, meshoffset[i])
-
-    write_long(file, len(meshoffset))
-    write_long(file, 0xDEADBEEF) # closing
+    try:
+        meshoffset = doexp(file, context, use_optimization, use_all, use_selection, use_visible, global_matrix)
+        for offset in meshoffset:
+            write_long(file, offset)
+        write_long(file, len(meshoffset))
+        write_long(file, 0xDEADBEEF) # closing
+    except:
+        MessageBox('something went wrong!', title='oops', icon='ERROR')
 
     file.close()
 
@@ -70,7 +70,7 @@ def getMaterial(mtl):
     'color': 'notex',
     'c_loc': [0.0,0.0],
     'c_scl': [1.0,1.0],
-    'light': '',
+    'light': None,
     'blend': '',
     'b_loc': [0.0,0.0],
     'b_scl': [1.0,1.0],
@@ -83,36 +83,35 @@ def getMaterial(mtl):
             mix_rgb = wrapper.node_principled_bsdf.inputs['Emission Color'].links[0].from_node
             color = mix_rgb.inputs['Color2'].links[0].from_node
             tex_image = color.inputs['Color1'].links[0].from_node
-            material['light'] = os.path.splitext(os.path.basename(tex_image.image.name))[0]
-        except:
-            material['light'] = None
+            material['light'] = Path(tex_image.image.name).stem
+        except: pass
         # diffuse only
         try:
             # color
             tex_image = wrapper.base_color_texture
-            material['color'] = os.path.splitext(os.path.basename(tex_image.image.name))[0]            
+            material['color'] = Path(tex_image.image.name).stem
             return material
-        except:pass
+        except: pass
         # blended
         try:
             mix_rgb = wrapper.node_principled_bsdf.inputs['Base Color'].links[0].from_node
             # color
             tex_image = mix_rgb.inputs['Color1'].links[0].from_node
-            material['color'] = os.path.splitext(os.path.basename(tex_image.image.name))[0]
+            material['color'] = Path(tex_image.image.name).stem
             mapping = tex_image.inputs['Vector'].links[0].from_node        
             material['c_loc'] = mapping.inputs['Location'].default_value[0], mapping.inputs['Location'].default_value[1]
             material['c_scl'] = 1/mapping.inputs['Scale'].default_value[0], 1/mapping.inputs['Scale'].default_value[1]
             # blend
             tex_image = mix_rgb.inputs['Color2'].links[0].from_node
-            material['blend'] = os.path.splitext(os.path.basename(tex_image.image.name))[0]
+            material['blend'] = Path(tex_image.image.name).stem
             mapping = tex_image.inputs['Vector'].links[0].from_node
             material['b_loc'] = mapping.inputs['Location'].default_value[0], mapping.inputs['Location'].default_value[1]
             material['b_scl'] = 1/mapping.inputs['Scale'].default_value[0], 1/mapping.inputs['Scale'].default_value[1]
             # alpha
             tex_image = mix_rgb.inputs['Fac'].links[0].from_node
-            material['alpha'] = os.path.splitext(os.path.basename(tex_image.image.name))[0]            
+            material['alpha'] = Path(tex_image.image.name).stem
             return material
-        except:pass
+        except: pass
     return material
 
 
@@ -134,12 +133,12 @@ def getVertIdx( verts, key, normal ):
 
 
 def MapToVerts( verts ):
-    out = []
+    output = []
     for vert in verts:
         key = list(vert.keys())[0]
         normal = vert.get(key)
-        out.append(key[0:12] + struct.pack('<3f', normal[0], normal[2], -normal[1]) + key[12:28])
-    return out
+        output.append(key[0:12] + struct.pack('<3f', normal[0], normal[2], -normal[1]) + key[12:28])
+    return output
 
 
 def ConvertToMPKFaces( mesh, use_optimization ):
@@ -202,7 +201,7 @@ def ConvertToMPKFaces( mesh, use_optimization ):
     return (verts.keys(), MapToVerts(opt_verts))[use_optimization], faces
 
 
-def doexp(file, context, use_optimization, use_selection, global_matrix):
+def doexp(file, context, use_optimization, use_all, use_selection, use_visible, global_matrix):
 
     scene = context.scene
     layer = context.view_layer
@@ -239,8 +238,10 @@ def doexp(file, context, use_optimization, use_selection, global_matrix):
 
     if use_selection:
         objects = [ob for ob in scene.objects if ob.type in object_filter and ob.visible_get(view_layer=layer) and ob.select_get(view_layer=layer)]
-    else:
+    elif use_visible:
         objects = [ob for ob in scene.objects if ob.type in object_filter and ob.visible_get(view_layer=layer)]
+    elif use_all:
+        objects = [ob for ob in scene.objects if ob.type in object_filter]
 
     for ob in objects:
         # Get derived objects
@@ -355,9 +356,9 @@ def doexp(file, context, use_optimization, use_selection, global_matrix):
 
         # materials
         LightMapName = ''
-        colls = ob.users_collection
         if numUVs == 2:
-            if len(colls) > 0:
+            colls = ob.users_collection
+            if colls[0].name != 'Scene Collection':
                 LightMapName = colls[0].name
             else:
                 LightMapName = ob.name + '_L_0000'

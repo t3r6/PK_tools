@@ -118,7 +118,6 @@ def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
 
     file = open(filepath, 'rb')
 
-    # read_mesh(file)
     try:
         read_mesh(file)
     except:
@@ -165,11 +164,11 @@ def read_mesh(file):
                 break
         bpy.ops.object.select_all(action='DESELECT')
 
-#    try:
-#        col = bpy.data.collections['___zone___']
-#        col.hide_viewport = True
-#    except:
-#        pass
+    # try:
+        # col = bpy.data.collections['___zone___']
+        # col.hide_viewport = True
+    # except:
+        # pass
 
 
 def CacheMesh(file, addr, geom):
