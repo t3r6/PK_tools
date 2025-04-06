@@ -134,11 +134,11 @@ def read_mesh(file):
         CacheMesh(file, addr[i] + 4, geom)
         BuildMesh(geom)
 
-#    try:
-#        col = bpy.data.collections['___zone___']
-#        col.hide_viewport = True
-#    except:
-#        pass
+    # try:
+        # col = bpy.data.collections['___zone___']
+        # col.hide_viewport = True
+    # except:
+        # pass
 
 
 def CacheMesh(file, addr, geom):
