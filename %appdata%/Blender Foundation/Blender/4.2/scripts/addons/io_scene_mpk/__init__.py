@@ -72,27 +72,50 @@ class ImportMPK(bpy.types.Operator, ImportHelper):
         box.prop( self, 'remove_doubles' )
 
 
-def _update_options(self, context):
-    val = (self.use_all << 2 | self.use_selection << 1 | self.use_visible << 0)
-    match (self.opt ^ val):
-        case 0b100:
+def _optimization_switch(self, context):
+    val = (self.use_preview << 2 | self.use_exact_normals << 1 | self.use_precise_normals << 0)
+    match (self.opt_swt ^ val):
+        case 0b100: # all
             if (val & 0b100):
-                if self.use_selection: self.use_selection = False
-                if self.use_visible: self.use_visible = False
-            else: self.use_all = True
-            self.opt = 0b100
-        case 0b010:
+                if val & 0b010: self.use_exact_normals = False
+                if val & 0b001: self.use_precise_normals = False
+                self.opt_swt = 0b100
+            else: self.use_preview = True
+        case 0b010: # selection
             if (val & 0b010):
-                if self.use_all: self.use_all = False
-                if self.use_visible: self.use_visible = False
-            else: self.use_selection = True
-            self.opt = 0b010
-        case 0b001:
+                if val & 0b100: self.use_preview = False
+                if val & 0b001: self.use_precise_normals = False
+                self.opt_swt = 0b010
+            else: self.use_exact_normals = True
+        case 0b001: # visible
             if (val & 0b001):
-                if self.use_all: self.use_all = False
-                if self.use_selection: self.use_selection = False
+                if val & 0b100: self.use_preview = False
+                if val & 0b010: self.use_exact_normals = False
+                self.opt_swt = 0b001
+            else: self.use_precise_normals = True
+
+
+def _selection_switch(self, context):
+    val = (self.use_all << 2 | self.use_selection << 1 | self.use_visible << 0)
+    match (self.sel_swt ^ val):
+        case 0b100: # all
+            if (val & 0b100):
+                if val & 0b010: self.use_selection = False
+                if val & 0b001: self.use_visible = False
+                self.sel_swt = 0b100
+            else: self.use_all = True
+        case 0b010: # selection
+            if (val & 0b010):
+                if val & 0b100: self.use_all = False
+                if val & 0b001: self.use_visible = False
+                self.sel_swt = 0b010
+            else: self.use_selection = True
+        case 0b001: # visible
+            if (val & 0b001):
+                if val & 0b100: self.use_all = False
+                if val & 0b010: self.use_selection = False
+                self.sel_swt = 0b001
             else: self.use_visible = True
-            self.opt = 0b001
 
 
 @orientation_helper(axis_forward='Y', axis_up='Z')
@@ -104,31 +127,46 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
 
     filename_ext = ".mpk"
     filter_glob: StringProperty(default="*.mpk", options={'HIDDEN'})
-
-    use_optimization : BoolProperty(
-            name = "Optimize",
-            description = "Remove double vertices",
-            default = False )
             
-    opt : IntProperty( default = 0b100 )
+    opt_swt : IntProperty( default = 0b100 )
+
+    use_preview : BoolProperty(
+            name = "Preview",
+            description = "Fast export for preliminary evaluation.\n!!!DO NOT USE FOR THE FINAL VERSION",
+            default = True,
+            update = _optimization_switch )
+
+    use_exact_normals : BoolProperty(
+            name = "Optimize by exact normals",
+            description = "Merge vertices by exact normals.\n!SLOW",
+            default = False,
+            update = _optimization_switch )
+
+    use_precise_normals : BoolProperty(
+            name = "Optimize by precise normals",
+            description = "Merge vertices by precise normals.\n!VERY SLOW",
+            default = False,
+            update = _optimization_switch )
+            
+    sel_swt : IntProperty( default = 0b100 )
 
     use_all: BoolProperty(
             name="All",
             description="Export all objects",
             default = True,
-            update = _update_options )
+            update = _selection_switch )
 
     use_selection: BoolProperty(
             name="Selection",
             description="Export selected objects only",
             default = False,
-            update = _update_options )
+            update = _selection_switch )
 
     use_visible: BoolProperty(
             name="Visible",
             description="Export visible objects only",
             default = False,
-            update = _update_options )
+            update = _selection_switch )
 
     def execute(self, context):
         from . import export_mpk
@@ -137,7 +175,8 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
                                             "axis_up",
                                             "filter_glob",
                                             "check_existing",
-                                            "opt"
+                                            "opt_swt",
+                                            "sel_swt",
                                             ))
 
         global_matrix = axis_conversion(from_forward=self.axis_forward,
@@ -149,7 +188,9 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
 
     def draw(self, context):
         box = self.layout.box()
-        box.prop( self, 'use_optimization' )
+        box.prop( self, 'use_preview' )
+        box.prop( self, 'use_exact_normals' )
+        box.prop( self, 'use_precise_normals' )
         box.prop( self, 'use_all' )
         box.prop( self, 'use_selection' )
         box.prop( self, 'use_visible' )

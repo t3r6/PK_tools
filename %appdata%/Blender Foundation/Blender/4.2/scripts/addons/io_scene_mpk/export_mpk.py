@@ -3,6 +3,7 @@ import bmesh
 import bpy
 import mathutils
 import numpy as np
+import re
 import struct
 import time
 import bpy_extras
@@ -11,16 +12,16 @@ from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 from pathlib import Path
 
 
-def load(operator, context, filepath="", use_optimization=True, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
+def load(operator, context, filepath="", use_preview=True, use_exact_normals=False, use_precise_normals=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
 
-    save_mpk(filepath, context, use_optimization, use_all, use_selection, use_visible, global_matrix)
+    save_mpk(filepath, context, use_preview, use_exact_normals, use_precise_normals, use_all, use_selection, use_visible, global_matrix)
 
     return {'FINISHED'}
 
 
-def save_mpk(filepath, context, use_optimization, use_all, use_selection, use_visible, global_matrix):
+def save_mpk(filepath, context, use_preview, use_exact_normals, use_precise_normals, use_all, use_selection, use_visible, global_matrix):
 
-    print("exporting MPK: %r..." % (filepath))
+    print("exporting MPK: %r..." % (filepath), end="")
 
     duration = time.time()
     context.window.cursor_set('WAIT')
@@ -28,7 +29,7 @@ def save_mpk(filepath, context, use_optimization, use_all, use_selection, use_vi
     file = open(filepath, 'wb')
 
     try:
-        meshoffset = doexp(file, context, use_optimization, use_all, use_selection, use_visible, global_matrix)
+        meshoffset = doexp(file, context, use_preview, use_exact_normals, use_precise_normals, use_all, use_selection, use_visible, global_matrix)
         for offset in meshoffset:
             write_long(file, offset)
         write_long(file, len(meshoffset))
@@ -39,12 +40,14 @@ def save_mpk(filepath, context, use_optimization, use_all, use_selection, use_vi
     file.close()
 
     context.window.cursor_set('DEFAULT')
-    print("MPK export time: %.2f" % (time.time() - duration))
+    print("\nMPK export time: %.2f" % (time.time() - duration))
 
 
 SZ_SHORT = 2
 SZ_INT = 4
 SZ_FLOAT = 4
+
+zone = ['antyp', 'portal', 'zone']
 
 
 def writeString(file,name):
@@ -141,7 +144,7 @@ def MapToVerts( verts ):
     return output
 
 
-def ConvertToMPKFaces( mesh, use_optimization ):
+def ConvertToMPKFaces( mesh, use_preview, use_exact_normals, use_precise_normals ):
     match mesh.normals_domain:
         case 'POINT':
             normal_source = mesh.vertex_normals
@@ -185,23 +188,26 @@ def ConvertToMPKFaces( mesh, use_optimization ):
             for iii in range(3):
                 vn.append(t_normal[idx + iii])
             normal = mathutils.Vector(vn)
-            if use_optimization:
+            if use_precise_normals or use_preview:
                 key = struct.pack('<7f', x, z, -y, uv1[0], 1-uv1[1], uv2[0], 1-uv2[1])
-                index = getVertIdx( opt_verts, key, normal )
+                index = None
+                force_opt = re.search(r'(?=(' + '|'.join(zone) + r'))', mesh.name, re.IGNORECASE)
+                if use_precise_normals or force_opt:
+                    index = getVertIdx( opt_verts, key, normal )
                 if index is None:
                     index = len(opt_verts)
                     vert[key] = normal
                     opt_verts.append(vert)
                 face.append(index)
-            else:
+            elif use_exact_normals:
                 key = struct.pack('<10f', x, z, -y, normal[0], normal[2], -normal[1], uv1[0], 1-uv1[1], uv2[0], 1-uv2[1])
                 if verts.get(key) is None: verts[key] = True
                 face.append(list(verts).index(key))
         faces.append(face)
-    return (verts.keys(), MapToVerts(opt_verts))[use_optimization], faces
+    return (verts.keys(), MapToVerts(opt_verts))[use_precise_normals or use_preview], faces
 
 
-def doexp(file, context, use_optimization, use_all, use_selection, use_visible, global_matrix):
+def doexp(file, context, use_preview, use_exact_normals, use_precise_normals, use_all, use_selection, use_visible, global_matrix):
 
     scene = context.scene
     layer = context.view_layer
@@ -269,6 +275,7 @@ def doexp(file, context, use_optimization, use_all, use_selection, use_visible, 
     offset = 0
     meshoffset = []
     for ob, mesh, matrix in mesh_objects:
+        print("\n" + ob.name + " ", end="")
         triangulate_object( mesh )
 
         # do nothing if the numbers are out of range
@@ -279,7 +286,7 @@ def doexp(file, context, use_optimization, use_all, use_selection, use_visible, 
             MessageBox(ob.name +": too many polygons (> 64K)")
             continue
 
-        verts, faces = ConvertToMPKFaces( mesh, use_optimization )
+        verts, faces = ConvertToMPKFaces( mesh, use_preview, use_exact_normals, use_precise_normals )
 
         if len(verts)>0xffff:
             MessageBox(ob.name +": too many vertices (> 64K)")
@@ -398,6 +405,7 @@ def doexp(file, context, use_optimization, use_all, use_selection, use_visible, 
             writeString(file,texName); offset += len(texName)+1
             mapping = struct.pack('<4f', 0, 0, 1, 1)
             file.write(mapping); offset += 4 * SZ_FLOAT
+        print(": done", end="")
 
     return meshoffset
 
