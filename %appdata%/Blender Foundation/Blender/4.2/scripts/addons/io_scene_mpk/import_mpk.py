@@ -1,10 +1,11 @@
-import io
-import os
-import bpy
-import struct
 import array
+import bpy
+import io
 import mathutils
+import os
 import re
+import struct
+import time
 from bpy_extras import image_utils
 from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 from dataclasses import dataclass
@@ -67,16 +68,19 @@ class Material:
     alphaTiling: UV
 
 
-def load(operator, context, filepath=""):
+def load(operator, context, filepath="", use_lightmaps=True, use_blendmaps=True, remove_doubles=False):
 
-    load_mpk(filepath, context)
+    load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles)
 
     return {'FINISHED'}
 
 
-def load_mpk(filepath, context):
+def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
 
-    print("importing MPK: %r..." % (filepath), end="")
+    print("importing MPK: %r..." % (filepath))
+
+    duration = time.time()
+    context.window.cursor_set('WAIT')
 
     if bpy.ops.object.select_all.poll():
         bpy.ops.object.select_all(action='DESELECT')
@@ -103,6 +107,15 @@ def load_mpk(filepath, context):
     global tm
     tm = mathutils.Matrix.Scale(measure, 4)
 
+    global bLightmaps
+    bLightmaps = use_lightmaps
+
+    global bBlendmaps
+    bBlendmaps = use_blendmaps
+
+    global bRemoveDoubles
+    bRemoveDoubles = remove_doubles
+
     file = open(filepath, 'rb')
 
     try:
@@ -112,10 +125,14 @@ def load_mpk(filepath, context):
 
     file.close()
 
+    context.window.cursor_set('DEFAULT')
+    print("MPK import time: %.2f" % (time.time() - duration))
+
 
 def read_mesh(file):
     global dirname
     dirname = os.path.dirname(file.name)
+    
     file.seek(-8, io.SEEK_END)
     numobj = read_long(file)
 
@@ -133,6 +150,19 @@ def read_mesh(file):
         geom = Mesh('', 0, 0, [], 0, [], 0, [])
         CacheMesh(file, addr[i] + 4, geom)
         BuildMesh(geom)
+    
+    if bRemoveDoubles:
+        if bpy.context.view_layer.objects.active is not None: bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.select_all(action='SELECT')
+        for obj in bpy.context.view_layer.objects:
+            if obj.type == 'MESH':
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+                bpy.ops.mesh.remove_doubles(threshold = 0.0001, use_sharp_edge_from_normals=True)
+                bpy.ops.object.mode_set(mode='OBJECT')
+                break
+        bpy.ops.object.select_all(action='DESELECT')
 
     # try:
         # col = bpy.data.collections['___zone___']
@@ -172,7 +202,7 @@ def CacheMesh(file, addr, geom):
             vert.v = 1 - read_float(file)
         geom.verts.append(vert)
 
-    # normals (if 2nd UV channel is presented)
+    # normals (if the 2nd UV channel is present)
     nrmls = read_long(file)
     for i in range(nrmls):
         geom.verts[i].nx = read_float(file)
@@ -219,29 +249,23 @@ def BuildMesh(geom):
     mesh.vertices.add(geom.numVerts)
     mesh.polygons.add(geom.numFaces)
     mesh.loops.add(geom.numFaces * 3)
-    mesh.create_normals_split()
 
-    # vertices
-    for vidx, v in enumerate(mesh.vertices):
-        v.co.x = geom.verts[vidx].x
-        v.co.y = geom.verts[vidx].y
-        v.co.z = geom.verts[vidx].z
-
-    # faces & normals
-    _faces = []
+    # vertices & normals
     _normals = []
+    for vidx, v in enumerate(mesh.vertices):
+        vert = geom.verts[vidx]
+        v.co.x = vert.x
+        v.co.y = vert.y
+        v.co.z = vert.z
+        _normals.append((vert.nx, vert.ny, vert.nz))
+
+    # faces
+    _faces = []
     for f in geom.faces:
         _faces.extend((f.v0, f.v1, f.v2))
-        v = geom.verts[f.v0]
-        _normals.extend((v.nx, v.ny, v.nz))
-        v = geom.verts[f.v1]
-        _normals.extend((v.nx, v.ny, v.nz))
-        v = geom.verts[f.v2]
-        _normals.extend((v.nx, v.ny, v.nz))
 
     mesh.polygons.foreach_set('loop_start', range(0, geom.numFaces * 3, 3))
     mesh.loops.foreach_set('vertex_index', _faces)
-    mesh.loops.foreach_set('normal', _normals)
     mesh.transform(tm)
 
     # MATERIALS
@@ -280,11 +304,12 @@ def BuildMesh(geom):
 
     # textures
     for i in range(geom.nummat):
-        matname = 'mtl_' + os.path.basename(geom.mat[i].colorMapName)
+        matname = 'mtl_' + geom.meshname + '_' + str(i+1)
 
         bmat = None
         blend = None
         alpha = None
+        light = None
 
         transparents = ['atest', 'decal', 'glass', 'trans']
         trans = re.search(
@@ -296,52 +321,46 @@ def BuildMesh(geom):
         blendOffset = (geom.mat[i].blendOffset.u, geom.mat[i].blendOffset.v, 0)
         blendScale = (1 / geom.mat[i].blendTiling.u, 1 / geom.mat[i].blendTiling.v, 1)
         mapto = 'DIFFUSE'
-        uv_map = mesh.uv_layers['lightmap'].name
 
-        addtex = True
         if (
-            len(geom.mat[i].blendMapName) > 0
+            bBlendmaps
+            and len(geom.mat[i].blendMapName) > 0
             and len(geom.mat[i].alphaMapName) > 0
             and geom.numchannels == 2
         ):
             mapto = 'BLEND'
-
-            color = read_texture_image(geom.mat[i].colorMapName)
+            
             blend = read_texture_image(geom.mat[i].blendMapName)
             alpha = read_texture_image(geom.mat[i].alphaMapName)
-
-            bmat = bpy.data.materials.new(matname)
         else:
             mapto = 'DIFFUSE'
+        
+        color = read_texture_image(geom.mat[i].colorMapName)
+        bmat = bpy.data.materials.new(matname)
 
-            mtl = mtl_cache.get(matname)
-            if mtl is not None:
-                mesh.materials.append(mtl)  # use existing
-                addtex = False
-            else:
-                color = read_texture_image(geom.mat[i].colorMapName)
-                bmat = bpy.data.materials.new(matname)
-                mtl_cache[matname] = bmat
+        if (
+            len(geom.mat[i].lightMapName) > 0
+            and geom.numchannels == 2
+        ):
+            light = read_texture_image(geom.mat[i].lightMapName)
+        
+        wrapper = PrincipledBSDFWrapper(bmat, is_readonly=False, use_nodes=True)
 
-        if addtex:
-            wrapper = PrincipledBSDFWrapper(bmat, is_readonly=False, use_nodes=True)
-
-            add_texture_to_material(
-                color,
-                blend,
-                alpha,
-                trans,
-                wrapper,
-                colorOffset,
-                colorScale,
-                blendOffset,
-                blendScale,
-                mapto,
-                uv_map,
-            )
-
-            bmat.use_backface_culling = True
-            mesh.materials.append(bmat)
+        add_texture_to_material(
+            color,
+            blend,
+            alpha,
+            light,
+            trans,
+            wrapper,
+            colorOffset,
+            colorScale,
+            blendOffset,
+            blendScale,
+            mapto,
+        )
+        bmat.use_backface_culling = True
+        mesh.materials.append(bmat)
 
     if geom.numchannels < 2:
         lm = mesh.uv_layers['lightmap']
@@ -351,11 +370,8 @@ def BuildMesh(geom):
     mesh.validate(clean_customdata=False)
     mesh.update()
 
-    clnors = array.array('f', [0.0] * (len(mesh.loops) * 3))
-    mesh.loops.foreach_get('normal', clnors)
     mesh.polygons.foreach_set('use_smooth', [True] * len(mesh.polygons))
-    mesh.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
-    mesh.use_auto_smooth = True
+    mesh.normals_split_custom_set_from_vertices(_normals)
 
     # COLLECTIONS
     ob = bpy.data.objects.new(geom.meshname, mesh)
@@ -363,8 +379,6 @@ def BuildMesh(geom):
     zone = [
         'antyp',
         'barrier',
-        'death',
-        'ladderzone',
         'monster',
         'physdest',
         'portal',
@@ -380,15 +394,15 @@ def BuildMesh(geom):
             col = bpy.data.collections.new('___zone___')
             bpy.context.scene.collection.children.link(col)
             col.objects.link(ob)
-    elif len(geom.mat[i].lightMapName) > 0 and geom.numchannels == 2:
+    elif len(geom.mat[0].lightMapName) > 0 and geom.numchannels == 2:
         try:
-            col = bpy.data.collections[geom.mat[i].lightMapName]
+            col = bpy.data.collections[geom.mat[0].lightMapName]
             col.objects.link(ob)
         except:
-            col = bpy.data.collections.new(geom.mat[i].lightMapName)
+            col = bpy.data.collections.new(geom.mat[0].lightMapName)
             bpy.context.scene.collection.children.link(col)
             col.objects.link(ob)
-        ob.select_set(True)
+#        ob.select_set(True)
     else:
         try:
             col = bpy.data.collections['___noLightMap___']
@@ -397,7 +411,7 @@ def BuildMesh(geom):
             col = bpy.data.collections.new('___noLightMap___')
             bpy.context.scene.collection.children.link(col)
             col.objects.link(ob)
-        ob.select_set(True)
+#        ob.select_set(True)
 
 
 SZ_FLOAT = struct.calcsize('f')
@@ -408,9 +422,9 @@ SZ_U_SHORT = struct.calcsize('H')
 def readString(file):
     strlen = read_long(file)
     outstring = file.read(strlen)
-    return outstring[:-1].decode('utf-8')
+    return outstring[:-1].decode('iso-8859-1')
 
-
+	
 def read_short(file):
     temp_data = file.read(SZ_U_SHORT)
     return struct.unpack('<H', temp_data)[0]
@@ -436,9 +450,31 @@ def read_texture_image(filepath):
     image = image_utils.load_image(
         basename + '.dds',
         dirname=dirname,
-        place_holder=True,
+        place_holder=False,
         recursive=True,
     )
+    if image is None:
+        image = image_utils.load_image(
+        basename + '.tga',
+        dirname=dirname,
+        place_holder=False,
+        recursive=True,
+        )
+    if image is None:
+        image = image_utils.load_image(
+        basename + '.bmp',
+        dirname=dirname,
+        place_holder=False,
+        recursive=True,
+        )
+    # set the 'dds' placeholder if no textures were found
+    if image is None:
+        image = image_utils.load_image(
+        basename + '.dds',
+        dirname=dirname,
+        place_holder=True,
+        recursive=False,
+        )
     image_cache[basename] = image
     return image
 
@@ -447,6 +483,7 @@ def add_texture_to_material(
     color,
     blend,
     alpha,
+    light,
     trans,
     wrapper,
     colorOffset,
@@ -454,64 +491,102 @@ def add_texture_to_material(
     blendOffset,
     blendScale,
     mapto,
-    uv_map,
 ):
     shader = wrapper.node_principled_bsdf
     nodetree = wrapper.material.node_tree
-    shader.location = (-300, 0)
+    shader.location = (600, 0)
     nodes = nodetree.nodes
     links = nodetree.links
+    
+    img_wrap = wrapper.base_color_texture
+    img_wrap.image = color
+    img_wrap.extension = 'REPEAT'
+    
+    mixer = None
 
     if mapto == 'BLEND':
         # color
-        img_wrap = wrapper.base_color_texture
-        img_wrap.scale = colorScale
-        img_wrap.translation = colorOffset
+        mapping = nodes.new(type='ShaderNodeMapping')
+        wrapper._grid_to_location(-2, 0, dst_node=mapping, ref_node=shader)
+        mapping.vector_type = 'TEXTURE'
+        mapping.inputs['Location'].default_value[0] = colorOffset[0]
+        mapping.inputs['Location'].default_value[1] = colorOffset[1]
+        mapping.inputs['Scale'].default_value[0] = colorScale[0]
+        mapping.inputs['Scale'].default_value[1] = colorScale[1]
+        links.new(mapping.outputs['Vector'], img_wrap.node_image.inputs['Vector'])
+        uv_map_node = nodes.new(type='ShaderNodeUVMap')
+        uv_map_node.uv_map = 'colormap'
+        links.new(uv_map_node.outputs['UV'], mapping.inputs['Vector'])
+        wrapper._grid_to_location(-3, 0, dst_node=uv_map_node, ref_node=shader)
         # blend
         blendMap = nodes.new(type='ShaderNodeTexImage')
-        blendMap.location = (-300, 300)
+        wrapper._grid_to_location(-1, -1.2, dst_node=blendMap, ref_node=shader)
         blendMap.image = blend
         blendMap.extension = 'REPEAT'
         mapping = nodes.new(type='ShaderNodeMapping')
-        mapping.location = (-600, 0)
+        wrapper._grid_to_location(-2, -1.2, dst_node=mapping, ref_node=shader)
         mapping.vector_type = 'TEXTURE'
         mapping.inputs['Location'].default_value[0] = blendOffset[0]
         mapping.inputs['Location'].default_value[1] = blendOffset[1]
         mapping.inputs['Scale'].default_value[0] = blendScale[0]
         mapping.inputs['Scale'].default_value[1] = blendScale[1]
-        for node in nodes:
-            if node.type == 'TEX_COORD':
-                links.new(node.outputs['UV'], mapping.inputs['Vector'])
+        links.new(uv_map_node.outputs['UV'], mapping.inputs['Vector'])
         links.new(mapping.outputs['Vector'], blendMap.inputs['Vector'])
         # mask
         alphaMap = nodes.new(type='ShaderNodeTexImage')
-        alphaMap.location = (-300, 600)
+        wrapper._grid_to_location(-1, 1.2, dst_node=alphaMap, ref_node=shader)
         alphaMap.image = alpha
         alphaMap.extension = 'REPEAT'
         uv_map_node = nodes.new(type='ShaderNodeUVMap')
-        uv_map_node.location = (-600, 600)
-        uv_map_node.uv_map = uv_map
-        links.new(uv_map_node.outputs[0], alphaMap.inputs[0])
+        wrapper._grid_to_location(-2, 1.2, dst_node=uv_map_node, ref_node=shader)
+        uv_map_node.uv_map = 'lightmap'
+        links.new(uv_map_node.outputs['UV'], alphaMap.inputs['Vector'])
         # mix
         mixer = nodes.new(type='ShaderNodeMixRGB')
-        mixer.label = 'Mixer'
-        wrapper._grid_to_location(1, 2, dst_node=mixer, ref_node=shader)
-        links.new(alphaMap.outputs['Color'], mixer.inputs[0])
-        links.new(img_wrap.node_image.outputs['Color'], mixer.inputs[1])
-        links.new(blendMap.outputs['Color'], mixer.inputs[2])
+        wrapper._grid_to_location(0.4, -0.075, dst_node=mixer, ref_node=shader)
+        links.new(alphaMap.outputs['Color'], mixer.inputs['Fac'])
+        links.new(img_wrap.node_image.outputs['Color'], mixer.inputs['Color1'])
+        links.new(blendMap.outputs['Color'], mixer.inputs['Color2'])
         links.new(mixer.outputs['Color'], shader.inputs['Base Color'])
     elif mapto == 'DIFFUSE':
-        img_wrap = wrapper.base_color_texture
         if trans:
             for node in nodes:
                 if node.type == 'TEX_IMAGE':
                     links.new(node.outputs['Alpha'], shader.inputs['Alpha'])
                     wrapper.material.blend_method = 'HASHED'
 
-    img_wrap.image = color
-    img_wrap.extension = 'REPEAT'
+    if bLightmaps and light is not None:
+        lightMap = nodes.new(type='ShaderNodeTexImage')
+        lightMap.image = light
+        lightMap.extension = 'REPEAT'
+        uv_map_node = nodes.new(type='ShaderNodeUVMap')
+        uv_map_node.uv_map = 'lightmap'
+        links.new(uv_map_node.outputs['UV'], lightMap.inputs['Vector'])
 
-    shader.location = (300, 300)
+        mixcolor = nodes.new(type='ShaderNodeMixRGB')
+        wrapper._grid_to_location(0.4, -1.55, dst_node=mixcolor, ref_node=shader)
+        mixcolor.blend_type = 'COLOR'
+        mixcolor.inputs['Fac'].default_value = 1.0
+        links.new(lightMap.outputs['Color'], mixcolor.inputs['Color1'])
+        links.new(lightMap.outputs['Alpha'], mixcolor.inputs['Color2'])
+
+        multiplier = nodes.new(type='ShaderNodeMixRGB')
+        wrapper._grid_to_location(1.2, -0.84, dst_node=multiplier, ref_node=shader)
+        multiplier.blend_type = 'MULTIPLY'
+        multiplier.inputs['Fac'].default_value = 0.995
+        if mapto == 'BLEND':
+            wrapper._grid_to_location(-1, -2.4, dst_node=lightMap, ref_node=shader)   
+            wrapper._grid_to_location(-2, -2.4, dst_node=uv_map_node, ref_node=shader)
+            links.new(mixer.outputs['Color'], multiplier.inputs['Color1'])
+        else:
+            wrapper._grid_to_location(-1, -1.2, dst_node=lightMap, ref_node=shader)   
+            wrapper._grid_to_location(-2, -1.2, dst_node=uv_map_node, ref_node=shader)
+            links.new(img_wrap.node_image.outputs['Color'], multiplier.inputs['Color1'])
+        links.new(mixcolor.outputs['Color'], multiplier.inputs['Color2'])
+        links.new(multiplier.outputs['Color'], shader.inputs['Emission Color'])
+        shader.inputs["Emission Strength"].default_value = 6.0
+
+    shader.location = (1200, 0)
     wrapper._grid_to_location(1, 0, dst_node=wrapper.node_out, ref_node=shader)
 
 
