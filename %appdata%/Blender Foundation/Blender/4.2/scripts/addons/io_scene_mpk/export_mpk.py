@@ -8,7 +8,6 @@ import struct
 import time
 import bpy_extras
 from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
-from dataclasses import dataclass
 from pathlib import Path
 
 
