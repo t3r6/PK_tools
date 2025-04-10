@@ -56,7 +56,7 @@ class ImportMPK(bpy.types.Operator, ImportHelper):
     remove_doubles : BoolProperty(
             name = "Merge vertices",
             description = "Removes double vertices",
-            default = False )
+            default = True )
 
     def execute(self, context):
         from . import import_mpk
@@ -73,26 +73,26 @@ class ImportMPK(bpy.types.Operator, ImportHelper):
 
 
 def _optimization_switch(self, context):
-    val = (self.use_preview << 2 | self.use_exact_normals << 1 | self.use_precise_normals << 0)
+    val = (self.use_preview << 2 | self.use_default << 1 | self.use_optimization << 0)
     match (self.opt_swt ^ val):
-        case 0b100: # all
+        case 0b100: # preview
             if (val & 0b100):
-                if val & 0b010: self.use_exact_normals = False
-                if val & 0b001: self.use_precise_normals = False
+                if val & 0b010: self.use_default = False
+                if val & 0b001: self.use_optimization = False
                 self.opt_swt = 0b100
             else: self.use_preview = True
-        case 0b010: # selection
+        case 0b010: # default
             if (val & 0b010):
                 if val & 0b100: self.use_preview = False
-                if val & 0b001: self.use_precise_normals = False
+                if val & 0b001: self.use_optimization = False
                 self.opt_swt = 0b010
-            else: self.use_exact_normals = True
-        case 0b001: # visible
+            else: self.use_default = True
+        case 0b001: # optimize
             if (val & 0b001):
                 if val & 0b100: self.use_preview = False
-                if val & 0b010: self.use_exact_normals = False
+                if val & 0b010: self.use_default = False
                 self.opt_swt = 0b001
-            else: self.use_precise_normals = True
+            else: self.use_optimization = True
 
 
 def _selection_switch(self, context):
@@ -132,19 +132,23 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
 
     use_preview : BoolProperty(
             name = "Preview",
-            description = "Fast export for preliminary evaluation.\n!!!DO NOT USE FOR THE FINAL VERSION",
+            description = "Fast export for preliminary evaluation",
             default = True,
             update = _optimization_switch )
 
-    use_exact_normals : BoolProperty(
-            name = "Optimize by exact normals",
-            description = "Merge vertices by exact normals.\n!SLOW",
+    use_default : BoolProperty(
+            name = "Default",
+            description = "Standard conversion",
             default = False,
             update = _optimization_switch )
 
-    use_precise_normals : BoolProperty(
-            name = "Optimize by precise normals",
-            description = "Merge vertices by precise normals.\n!VERY SLOW",
+    use_optimization : BoolProperty(
+            name = "Optimize",
+            description = "Remove double vertices.\n\n!!! TAKES LONG !!! 10 - 30 min\n\n" \
+                            "Instead, export the data with the \'Preview' (or \'Default\') option,\n" \
+                            "then import the data back into a new scene with the \'Merge vertices\'\n" \
+                            "option (import dialog), and then export it with the \'Default\' option.\n"
+                            "This way almost the same result as \'Optimize\'d is produced much faster",
             default = False,
             update = _optimization_switch )
             
@@ -189,8 +193,8 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
     def draw(self, context):
         box = self.layout.box()
         box.prop( self, 'use_preview' )
-        box.prop( self, 'use_exact_normals' )
-        box.prop( self, 'use_precise_normals' )
+        box.prop( self, 'use_default' )
+        box.prop( self, 'use_optimization' )
         box.prop( self, 'use_all' )
         box.prop( self, 'use_selection' )
         box.prop( self, 'use_visible' )
