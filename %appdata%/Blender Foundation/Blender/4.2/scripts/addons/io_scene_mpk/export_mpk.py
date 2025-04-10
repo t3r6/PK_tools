@@ -51,20 +51,6 @@ SZ_INT = 4
 SZ_FLOAT = 4
 
 
-@dataclass
-class Vertex:
-    x: float
-    y: float
-    z: float
-    nx: float
-    ny: float
-    nz: float
-    u: float
-    v: float
-    u2: float
-    v2: float
-
-
 def writeString(file,name):
     value = name.encode('iso-8859-1', "replace")
     binary_format = '<%ds' % (len(value) + 1)
