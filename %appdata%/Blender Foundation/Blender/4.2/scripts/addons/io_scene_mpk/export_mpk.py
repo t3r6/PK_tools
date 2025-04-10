@@ -12,27 +12,27 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-def load(operator, context, filepath="", use_preview=True, use_default=False, use_optimization=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
+def load(operator, context, filepath="", use_default=True, use_optimization=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
 
-    save_mpk(filepath, context, use_preview, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix)
+    save_mpk(filepath, context, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix)
 
     return {'FINISHED'}
 
 
-def save_mpk(filepath, context, use_preview, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix):
+def save_mpk(filepath, context, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix):
 
     try: file = open(filepath, 'wb')
     except:
         MessageBox('access denied: ' + filepath, title='OSError', icon='ERROR')
         return
 
-    print("exporting MPK: %r..." % (filepath), end="")
+    print("exporting MPK: %r..." % (filepath))
 
     duration = time.time()
     context.window.cursor_set('WAIT')
 
     try:
-        meshoffset = doexp(file, context, use_preview, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix)
+        meshoffset = doexp(file, context, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix)
         for offset in meshoffset:
             write_long(file, offset)
         write_long(file, len(meshoffset))
@@ -43,7 +43,7 @@ def save_mpk(filepath, context, use_preview, use_default, use_optimization, use_
     file.close()
 
     context.window.cursor_set('DEFAULT')
-    print("\nMPK export time: %.2f" % (time.time() - duration))
+    print("MPK export time: %.2f" % (time.time() - duration))
 
 
 SZ_SHORT = 2
@@ -141,15 +141,6 @@ def triangulate_object(mesh):
     bm.free()
 
 
-def getVertIdx( verts, key, normal ):
-    for idx, vert in enumerate( verts ):
-        _normal = vert.get(key)
-        if _normal:
-            if (_normal@normal)>0.9999:
-                return idx
-    return None
-
-
 def _map_n_pack( verts ):
     output = []
     for vert in verts:
@@ -159,15 +150,7 @@ def _map_n_pack( verts ):
     return output
 
 
-def _pack( verts ):
-    output = []
-    for v in verts:
-        key = struct.pack('<10f', v.x, v.z, -v.y, v.nx, v.nz, -v.ny, v.u, 1-v.v, v.u2, 1-v.v2)
-        output.append(key)
-    return output
-
-
-def ConvertToMPKFaces( mesh, use_preview, use_default, use_optimization ):
+def ConvertToMPKFaces( mesh, use_default, use_optimization ):
     match mesh.normals_domain:
         case 'POINT':
             normal_source = mesh.vertex_normals
@@ -183,16 +166,16 @@ def ConvertToMPKFaces( mesh, use_preview, use_default, use_optimization ):
 
     uvl_1 = mesh.uv_layers[0].data[:] if len(mesh.uv_layers) > 0 else None
     uvl_2 = mesh.uv_layers[1].data[:] if len(mesh.uv_layers) > 1 else None
-    verts = []; prev_verts = [[] for i in range(len(mesh.vertices))]; vWritten = {};
-    ext_verts = {}
+    verts = []
     faces = []
+    vWritten = {}
 
     i = 0
     split = len(t_normal)/3 == len(mesh.polygons)*3
     
     for pl in mesh.polygons:
         ii = 0
-        face = []; pface = pl.vertices
+        face = []
         for j,v in enumerate(pl.vertices):
             vert = {}
             # coords
@@ -211,58 +194,52 @@ def ConvertToMPKFaces( mesh, use_preview, use_default, use_optimization ):
             for iii in range(3):
                 vn.append(t_normal[idx + iii])
             normal = mathutils.Vector(vn)
-            if use_preview:
-                tmp_vert = Vertex(x, y, z, normal[0], normal[1], normal[2], uv1[0], uv1[1], uv2[0], uv2[1])
-                if vWritten.get(v):
-                    n = mathutils.Vector((prev_verts[v].nx, prev_verts[v].ny, prev_verts[v].nz))
-                    if \
-                        tmp_vert.u != prev_verts[v].u or tmp_vert.v != prev_verts[v].v or \
-                        tmp_vert.u2 != prev_verts[v].u2 or tmp_vert.v2 != prev_verts[v].v2 or \
-                        (n@normal)<0.9999:
-                            index = len(verts)
-                            verts.append(tmp_vert)
-                            pface[j]=index + len(mesh.vertices)
-                else:
-                    vWritten[v] = True
-                    prev_verts[v] = tmp_vert
-            elif use_default:
+            if use_default:
                 key = struct.pack('<10f', x, z, -y, normal[0], normal[2], -normal[1], uv1[0], 1-uv1[1], uv2[0], 1-uv2[1])
-                if vWritten.get(v):
-                    try:
-                        index = verts.index(key)
-                        face.append(index)
-                    except:
-                        index = None
-                        if ext_verts.get(key): index = list(ext_verts).index(key)
-                        if index is None:
-                            index = len(ext_verts)
-                            ext_verts[key] = True
-                        face.append(index + len(mesh.vertices))
+                double = vWritten.get(v)
+                if bool(double):
+                    index = None
+                    for vrt in double:
+                        index = vrt.get(key)
+                        if index: break
+                    if index is None:
+                        vWritten[v].append({key : len(verts)})
+                        face.append(len(verts))
+                        verts.append(key)
+                    else: face.append(index)
                 else:
-                    vWritten[v] = True
+                    vWritten[v] = [{key : len(verts)}]
                     face.append(len(verts))
                     verts.append(key)
             if use_optimization:
                 key = struct.pack('<7f', x, z, -y, uv1[0], 1-uv1[1], uv2[0], 1-uv2[1])
-                index = getVertIdx( verts, key, normal )
-                if index is None:
-                    index = len(verts)
+                double = vWritten.get(key)
+                if bool(double):
+                    index = None
+                    for vrt in double:
+                        vdata = vrt.get(key)
+                        if vdata and (vdata[0]@normal)>0.9999:
+                            index = vdata[1]
+                            break
+                    if index is None:
+                        vWritten[key].append({key : [normal,len(verts)]})
+                        face.append(len(verts))
+                        vert[key] = normal
+                        verts.append(vert)
+                    else: face.append(index)
+                else:
+                    vWritten[key] = [{key : [normal,len(verts)]}]
+                    face.append(len(verts))
                     vert[key] = normal
                     verts.append(vert)
-                face.append(index)
-        faces.append((face,pface)[use_preview])
-    if use_preview:
-        for v in verts: prev_verts.append(v)
-        out_verts = _pack(prev_verts)
-    elif use_default:
-        for v in ext_verts.keys(): verts.append(v)
-        out_verts = verts
+        faces.append(face)
+    if use_default:
+        return verts, faces
     elif use_optimization:
-        out_verts = _map_n_pack(verts)
-    return out_verts, faces
+        return _map_n_pack(verts), faces
 
 
-def doexp(file, context, use_preview, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix):
+def doexp(file, context, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix):
 
     scene = context.scene
     layer = context.view_layer
@@ -330,7 +307,6 @@ def doexp(file, context, use_preview, use_default, use_optimization, use_all, us
     offset = 0
     meshoffset = []; total = str(len(mesh_objects))
     for ob, mesh, matrix in mesh_objects:
-        print("\n" + str(len(meshoffset)+1) + "/" + total + " : " + ob.name + " ", end=""); duration = time.time()
         triangulate_object( mesh )
         
         if len(mesh.vertices)>0xffff:
@@ -340,7 +316,7 @@ def doexp(file, context, use_preview, use_default, use_optimization, use_all, us
             MessageBox(ob.name +": too many polygons (> 64K)")
             continue
 
-        verts, faces = ConvertToMPKFaces( mesh, use_preview, use_default, use_optimization )
+        verts, faces = ConvertToMPKFaces( mesh, use_default, use_optimization )
 
         if len(verts)>0xffff:
             MessageBox(ob.name +": too many vertices (> 64K)")
@@ -459,7 +435,6 @@ def doexp(file, context, use_preview, use_default, use_optimization, use_all, us
             writeString(file,texName); offset += len(texName)+1
             mapping = struct.pack('<4f', 0, 0, 1, 1)
             file.write(mapping); offset += 4 * SZ_FLOAT
-        print(": %.2f" % (time.time() - duration), end="")
 
     return meshoffset
 
@@ -467,5 +442,4 @@ def doexp(file, context, use_preview, use_default, use_optimization, use_all, us
 def MessageBox(message='', title='Message Box', icon='INFO'):
     def draw(self, context):
         self.layout.label(text=message)
-
     bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
