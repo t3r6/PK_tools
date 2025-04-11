@@ -11,14 +11,14 @@ from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 from pathlib import Path
 
 
-def load(operator, context, filepath="", use_default=True, use_optimization=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
+def load(operator, context, filepath="", use_default=True, use_optimize=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
 
-    save_mpk(filepath, context, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix)
+    save_mpk(filepath, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix)
 
     return {'FINISHED'}
 
 
-def save_mpk(filepath, context, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix):
+def save_mpk(filepath, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix):
 
     try: file = open(filepath, 'wb')
     except:
@@ -31,7 +31,7 @@ def save_mpk(filepath, context, use_default, use_optimization, use_all, use_sele
     context.window.cursor_set('WAIT')
 
     try:
-        meshoffset = doexp(file, context, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix)
+        meshoffset = doexp(file, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix)
         for offset in meshoffset:
             write_long(file, offset)
         write_long(file, len(meshoffset))
@@ -135,7 +135,7 @@ def _map_n_pack( verts ):
     return output
 
 
-def ConvertToMPKFaces( mesh, use_default, use_optimization ):
+def ConvertToMPKFaces( mesh, use_default, use_optimize ):
     match mesh.normals_domain:
         case 'POINT':
             normal_source = mesh.vertex_normals
@@ -196,7 +196,7 @@ def ConvertToMPKFaces( mesh, use_default, use_optimization ):
                     vWritten[v] = [{key : len(verts)}]
                     face.append(len(verts))
                     verts.append(key)
-            if use_optimization:
+            if use_optimize:
                 key = struct.pack('<7f', x, z, -y, uv1[0], 1-uv1[1], uv2[0], 1-uv2[1])
                 double = vWritten.get(key)
                 if bool(double):
@@ -220,11 +220,11 @@ def ConvertToMPKFaces( mesh, use_default, use_optimization ):
         faces.append(face)
     if use_default:
         return verts, faces
-    elif use_optimization:
+    elif use_optimize:
         return _map_n_pack(verts), faces
 
 
-def doexp(file, context, use_default, use_optimization, use_all, use_selection, use_visible, global_matrix):
+def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix):
 
     scene = context.scene
     layer = context.view_layer
@@ -293,15 +293,8 @@ def doexp(file, context, use_default, use_optimization, use_all, use_selection, 
     meshoffset = []; total = str(len(mesh_objects))
     for ob, mesh, matrix in mesh_objects:
         triangulate_object( mesh )
-        
-        if len(mesh.vertices)>0xffff:
-            MessageBox(ob.name +": too many vertices (> 64K)")
-            continue
-        if len(mesh.polygons)>0xffff:
-            MessageBox(ob.name +": too many polygons (> 64K)")
-            continue
 
-        verts, faces = ConvertToMPKFaces( mesh, use_default, use_optimization )
+        verts, faces = ConvertToMPKFaces( mesh, use_default, use_optimize )
 
         if len(verts)>0xffff:
             MessageBox(ob.name +": too many vertices (> 64K)")

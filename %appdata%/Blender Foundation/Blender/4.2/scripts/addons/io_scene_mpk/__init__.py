@@ -73,18 +73,18 @@ class ImportMPK(bpy.types.Operator, ImportHelper):
 
 
 def _optimization_switch(self, context):
-    val = (self.use_default << 1 | self.use_optimization << 0)
+    val = (self.use_default << 1 | self.use_optimize << 0)
     match (self.opt_swt ^ val):
         case 0b10: # default
             if (val & 0b10):
-                if val & 0b01: self.use_optimization = False
+                if val & 0b01: self.use_optimize = False
                 self.opt_swt = 0b10
             else: self.use_default = True
         case 0b01: # optimize
             if (val & 0b01):
                 if val & 0b10: self.use_default = False
                 self.opt_swt = 0b01
-            else: self.use_optimization = True
+            else: self.use_optimize = True
 
 
 def _selection_switch(self, context):
@@ -128,7 +128,7 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
             default = True,
             update = _optimization_switch )
 
-    use_optimization : BoolProperty(
+    use_optimize : BoolProperty(
             name = "Optimize",
             description = "Remove double vertices",
             default = False,
@@ -175,7 +175,7 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
     def draw(self, context):
         box = self.layout.box()
         box.prop( self, 'use_default' )
-        box.prop( self, 'use_optimization' )
+        box.prop( self, 'use_optimize' )
         box.prop( self, 'use_all' )
         box.prop( self, 'use_selection' )
         box.prop( self, 'use_visible' )
