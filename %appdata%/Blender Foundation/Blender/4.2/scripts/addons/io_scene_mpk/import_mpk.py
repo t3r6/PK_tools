@@ -124,9 +124,9 @@ def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
 
     try:
         read_mesh(file)
-        info('Success', icon='INFO')
+        info('success', icon='INFO')
     except:
-        info('Something went wrong', icon='ERROR')
+        info('something went wrong', icon='ERROR')
 
     file.close()
 

@@ -20,7 +20,7 @@ bl_info = {
     "version": (3, 0, 0),
     "blender": (4, 2, 2),
     "location": "File > Import-Export",
-    "description": "Painkiller WorldMesh Import",
+    "description": "Painkiller WorldMesh Import/Export",
     "doc_url": "https://github.com/max-ego/PK_tools/",
     "category": "Import-Export",
 }
