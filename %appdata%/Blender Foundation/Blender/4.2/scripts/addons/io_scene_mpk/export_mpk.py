@@ -13,6 +13,10 @@ from pathlib import Path
 
 def load(operator, context, filepath="", use_default=True, use_optimize=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
 
+    global info
+    
+    def info(msg='', icon='INFO'): operator.report({icon}, 'MPK Export : ' + msg)
+
     save_mpk(filepath, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix)
 
     return {'FINISHED'}
@@ -22,7 +26,7 @@ def save_mpk(filepath, context, use_default, use_optimize, use_all, use_selectio
 
     try: file = open(filepath, 'wb')
     except:
-        MessageBox('access denied: ' + filepath, title='OSError', icon='ERROR')
+        info('access denied : ' + filepath, icon='ERROR')
         return
 
     print("exporting MPK: %r..." % (filepath))
@@ -36,8 +40,9 @@ def save_mpk(filepath, context, use_default, use_optimize, use_all, use_selectio
             write_long(file, offset)
         write_long(file, len(meshoffset))
         write_long(file, 0xDEADBEEF) # closing
+        info('success', icon='INFO')
     except:
-        MessageBox('something went wrong!', title='oops', icon='ERROR')
+        info('something went wrong', icon='ERROR')
 
     file.close()
 
@@ -297,10 +302,10 @@ def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_
         verts, faces = ConvertToMPKFaces( mesh, use_default, use_optimize )
 
         if len(verts)>0xffff:
-            MessageBox(ob.name +": too many vertices (> 64K)")
+            info("\'%s\' is rejected : too many vertices (> 64K)" % ob.name, icon='WARNING')
             continue
         if len(faces)>0xffff:
-            MessageBox(ob.name +": too many faces (> 64K)")
+            info("\'%s\' is rejected : too many faces (> 64K)" % ob.name, icon='WARNING')
             continue
 
         mtls = {}; _idx = None; i=0
@@ -313,6 +318,15 @@ def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_
             else:
                 mtl = mtls.get(i-1)
                 mtls[i-1] = mtl[0]+1,mtl[1]
+
+        try:
+            mtl_offset = 0
+            for mtl in mtls.values():
+                assert(mtl_offset<=0xffff)
+                mtl_offset += mtl[0]*3
+        except:
+            info("\'%s\' is rejected : too many faces" % ob.name, icon='WARNING')
+            continue
 
         materials = ([getMaterial(None)],[])[bool(ob.material_slots)]
         for slot in ob.material_slots:
@@ -396,7 +410,7 @@ def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_
             file.write(mapping); offset += 4 * SZ_FLOAT
             # light map : uses 2nd UV-channel
             texName = mtl.get('light')
-            if texName is None: texName = LightMapName
+            if texName is None: texName = Path(LightMapName).stem
             write_long(file,len(texName)+1); offset += SZ_INT
             writeString(file,texName); offset += len(texName)+1
             mapping = struct.pack('<4f', 0, 0, 1, 1)
@@ -415,9 +429,3 @@ def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_
             file.write(mapping); offset += 4 * SZ_FLOAT
 
     return meshoffset
-
-
-def MessageBox(message='', title='Message Box', icon='INFO'):
-    def draw(self, context):
-        self.layout.label(text=message)
-    bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)

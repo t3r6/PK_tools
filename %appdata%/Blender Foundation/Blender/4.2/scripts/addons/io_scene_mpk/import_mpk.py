@@ -70,6 +70,10 @@ class Material:
 
 def load(operator, context, filepath="", use_lightmaps=True, use_blendmaps=True, remove_doubles=True):
 
+    global info
+    
+    def info(msg='', icon='INFO'): operator.report({icon}, 'MPK Import : ' + msg)
+
     load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles)
 
     return {'FINISHED'}
@@ -120,8 +124,9 @@ def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
 
     try:
         read_mesh(file)
+        info('Success', icon='INFO')
     except:
-        MessageBox('something went wrong!', title='oops', icon='ERROR')
+        info('Something went wrong', icon='ERROR')
 
     file.close()
 
@@ -164,11 +169,30 @@ def read_mesh(file):
                 break
         bpy.ops.object.select_all(action='DESELECT')
 
+    try:
+        for ob in bpy.data.collections['___zone___'].all_objects:
+            bpy.context.view_layer.objects.active = ob
+            bpy.ops.mesh.customdata_custom_splitnormals_clear()
+            ob.select_set(True)
+            bpy.ops.object.shade_flat()
+        bpy.ops.object.select_all(action='DESELECT')
+    except: pass
+
     # try:
         # col = bpy.data.collections['___zone___']
         # col.hide_viewport = True
     # except:
         # pass
+
+
+def dummyMat(geom):
+    mat = Material(0, geom.numFaces,
+        'notex', UV(0, 0), UV(1, 1),
+        '', UV(0, 0), UV(1, 1),
+        '', UV(0, 0), UV(1, 1),
+        '', UV(0, 0), UV(1, 1))
+    geom.nummat = 1
+    geom.mat.append(mat)
 
 
 def CacheMesh(file, addr, geom):
@@ -241,6 +265,9 @@ def CacheMesh(file, addr, geom):
             UV(read_float(file), read_float(file)),
         )
         geom.mat.append(mat)
+
+    # dummy material
+    if geom.nummat == 0: dummyMat(geom)
 
 
 def BuildMesh(geom):
@@ -588,10 +615,4 @@ def add_texture_to_material(
 
     shader.location = (1200, 0)
     wrapper._grid_to_location(1, 0, dst_node=wrapper.node_out, ref_node=shader)
-
-
-def MessageBox(message='', title='Message Box', icon='INFO'):
-    def draw(self, context):
-        self.layout.label(text=message)
-
-    bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
+    
