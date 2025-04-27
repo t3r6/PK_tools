@@ -120,7 +120,11 @@ def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
     global bRemoveDoubles
     bRemoveDoubles = remove_doubles
 
-    file = open(filepath, 'rb')
+    try:
+        file = open(filepath, 'rb')
+    except:
+        info('no such file or directory: \'' + filepath + '\'', icon='ERROR')
+        return
 
     try:
         read_mesh(file)
@@ -331,8 +335,6 @@ def BuildMesh(geom):
 
     # textures
     for i in range(geom.nummat):
-        matname = 'mtl_' + geom.meshname + '_' + str(i+1)
-
         bmat = None
         blend = None
         alpha = None
@@ -348,6 +350,7 @@ def BuildMesh(geom):
         blendOffset = (geom.mat[i].blendOffset.u, geom.mat[i].blendOffset.v, 0)
         blendScale = (1 / geom.mat[i].blendTiling.u, 1 / geom.mat[i].blendTiling.v, 1)
         mapto = 'DIFFUSE'
+        addtex = True
 
         if (
             bBlendmaps
@@ -359,35 +362,48 @@ def BuildMesh(geom):
             
             blend = read_texture_image(geom.mat[i].blendMapName)
             alpha = read_texture_image(geom.mat[i].alphaMapName)
-        else:
-            mapto = 'DIFFUSE'
         
         color = read_texture_image(geom.mat[i].colorMapName)
-        bmat = bpy.data.materials.new(matname)
 
         if (
-            len(geom.mat[i].lightMapName) > 0
+            bLightmaps
+            and len(geom.mat[i].lightMapName) > 0
             and geom.numchannels == 2
         ):
             light = read_texture_image(geom.mat[i].lightMapName)
         
-        wrapper = PrincipledBSDFWrapper(bmat, is_readonly=False, use_nodes=True)
+        if bool(light) or mapto == 'BLEND':
+            matname = 'mtl_' + geom.meshname + '_' + str(i+1)
+            bmat = bpy.data.materials.new(matname)
+        else:
+            texname = ('notex', os.path.basename(geom.mat[i].colorMapName).split('.', 1)[0]) [bool(geom.mat[i].colorMapName)]
+            matname = 'mtl_' + texname
+            mtl = mtl_cache.get(matname)
+            if mtl is not None:
+                mesh.materials.append(mtl)  # use existing
+                addtex = False
+            else:
+                bmat = bpy.data.materials.new(matname)
+                mtl_cache[matname] = bmat
+            
+        if addtex:
+            wrapper = PrincipledBSDFWrapper(bmat, is_readonly=False, use_nodes=True)
 
-        add_texture_to_material(
-            color,
-            blend,
-            alpha,
-            light,
-            trans,
-            wrapper,
-            colorOffset,
-            colorScale,
-            blendOffset,
-            blendScale,
-            mapto,
-        )
-        bmat.use_backface_culling = True
-        mesh.materials.append(bmat)
+            add_texture_to_material(
+                color,
+                blend,
+                alpha,
+                light,
+                trans,
+                wrapper,
+                colorOffset,
+                colorScale,
+                blendOffset,
+                blendScale,
+                mapto,
+            )
+            bmat.use_backface_culling = True
+            mesh.materials.append(bmat)
 
     if geom.numchannels < 2:
         lm = mesh.uv_layers['lightmap']
@@ -429,7 +445,7 @@ def BuildMesh(geom):
             col = bpy.data.collections.new(geom.mat[0].lightMapName)
             bpy.context.scene.collection.children.link(col)
             col.objects.link(ob)
-#        ob.select_set(True)
+       # ob.select_set(True)
     else:
         try:
             col = bpy.data.collections['___noLightMap___']
@@ -438,7 +454,7 @@ def BuildMesh(geom):
             col = bpy.data.collections.new('___noLightMap___')
             bpy.context.scene.collection.children.link(col)
             col.objects.link(ob)
-#        ob.select_set(True)
+       # ob.select_set(True)
 
 
 SZ_FLOAT = struct.calcsize('f')
@@ -468,7 +484,7 @@ def read_float(file):
 
 
 def read_texture_image(filepath):
-    basename = os.path.basename(filepath)
+    basename = os.path.basename(filepath).split('.', 1)[0]
     if not len(basename):
         basename = 'notex'
     image = image_cache.get(basename)
@@ -582,7 +598,7 @@ def add_texture_to_material(
                     links.new(node.outputs['Alpha'], shader.inputs['Alpha'])
                     wrapper.material.blend_method = 'HASHED'
 
-    if bLightmaps and light is not None:
+    if bool(light):
         lightMap = nodes.new(type='ShaderNodeTexImage')
         lightMap.image = light
         lightMap.extension = 'REPEAT'

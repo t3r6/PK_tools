@@ -2,13 +2,13 @@ import array
 import bmesh
 import bpy
 import mathutils
+import os
 import numpy as np
 import re
 import struct
 import time
 import bpy_extras
 from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
-from pathlib import Path
 
 
 def load(operator, context, filepath="", use_default=True, use_optimize=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
@@ -73,6 +73,10 @@ def write_float(file,value):
     file.write(struct.pack('<f',value))
 
 
+def fname(filepath):
+    return os.path.basename(filepath).split('.', 1)[0]
+
+
 def getMaterial(mtl):
     material = {
     'color': 'notex',
@@ -91,13 +95,13 @@ def getMaterial(mtl):
             mix_rgb = wrapper.node_principled_bsdf.inputs['Emission Color'].links[0].from_node
             color = mix_rgb.inputs['Color2'].links[0].from_node
             tex_image = color.inputs['Color1'].links[0].from_node
-            material['light'] = Path(tex_image.image.name).stem
+            material['light'] = fname(tex_image.image.name)
         except: pass
         # diffuse only
         try:
             # color
             tex_image = wrapper.base_color_texture
-            material['color'] = Path(tex_image.image.name).stem
+            material['color'] = fname(tex_image.image.name)
             return material
         except: pass
         # blended
@@ -105,19 +109,19 @@ def getMaterial(mtl):
             mix_rgb = wrapper.node_principled_bsdf.inputs['Base Color'].links[0].from_node
             # color
             tex_image = mix_rgb.inputs['Color1'].links[0].from_node
-            material['color'] = Path(tex_image.image.name).stem
+            material['color'] = fname(tex_image.image.name)
             mapping = tex_image.inputs['Vector'].links[0].from_node        
             material['c_loc'] = mapping.inputs['Location'].default_value[0], mapping.inputs['Location'].default_value[1]
             material['c_scl'] = 1/mapping.inputs['Scale'].default_value[0], 1/mapping.inputs['Scale'].default_value[1]
             # blend
             tex_image = mix_rgb.inputs['Color2'].links[0].from_node
-            material['blend'] = Path(tex_image.image.name).stem
+            material['blend'] = fname(tex_image.image.name)
             mapping = tex_image.inputs['Vector'].links[0].from_node
             material['b_loc'] = mapping.inputs['Location'].default_value[0], mapping.inputs['Location'].default_value[1]
             material['b_scl'] = 1/mapping.inputs['Scale'].default_value[0], 1/mapping.inputs['Scale'].default_value[1]
             # alpha
             tex_image = mix_rgb.inputs['Fac'].links[0].from_node
-            material['alpha'] = Path(tex_image.image.name).stem
+            material['alpha'] = fname(tex_image.image.name)
             return material
         except: pass
     return material
@@ -410,7 +414,7 @@ def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_
             file.write(mapping); offset += 4 * SZ_FLOAT
             # light map : uses 2nd UV-channel
             texName = mtl.get('light')
-            if texName is None: texName = Path(LightMapName).stem
+            if texName is None: texName = fname(LightMapName)
             write_long(file,len(texName)+1); offset += SZ_INT
             writeString(file,texName); offset += len(texName)+1
             mapping = struct.pack('<4f', 0, 0, 1, 1)
