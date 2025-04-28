@@ -81,11 +81,6 @@ def load(operator, context, filepath="", use_lightmaps=True, use_blendmaps=True,
 
 def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
 
-    print("importing MPK: %r..." % (filepath))
-
-    duration = time.time()
-    context.window.cursor_set('WAIT')
-
     if bpy.ops.object.select_all.poll():
         bpy.ops.object.select_all(action='DESELECT')
 
@@ -123,8 +118,13 @@ def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
     try:
         file = open(filepath, 'rb')
     except:
-        info('no such file or directory: \'' + filepath + '\'', icon='ERROR')
+        info('no such file: \'' + filepath + '\'', icon='ERROR')
         return
+
+    print("importing MPK: %r..." % filepath)
+
+    duration = time.time()
+    context.window.cursor_set('WAIT')
 
     try:
         read_mesh(file)
@@ -182,11 +182,7 @@ def read_mesh(file):
         bpy.ops.object.select_all(action='DESELECT')
     except: pass
 
-    # try:
-        # col = bpy.data.collections['___zone___']
-        # col.hide_viewport = True
-    # except:
-        # pass
+    bpy.context.view_layer.objects.active = None
 
 
 def dummyMat(geom):
@@ -444,7 +440,14 @@ def BuildMesh(geom):
             col = bpy.data.collections.new(geom.mat[0].lightMapName)
             bpy.context.scene.collection.children.link(col)
             col.objects.link(ob)
-       # ob.select_set(True)
+    elif geom.numchannels == 1:
+        try:
+            col = bpy.data.collections['___1UVs___']
+            col.objects.link(ob)
+        except:
+            col = bpy.data.collections.new('___1UVs___')
+            bpy.context.scene.collection.children.link(col)
+            col.objects.link(ob)
     else:
         try:
             col = bpy.data.collections['___noLightMap___']
@@ -453,7 +456,6 @@ def BuildMesh(geom):
             col = bpy.data.collections.new('___noLightMap___')
             bpy.context.scene.collection.children.link(col)
             col.objects.link(ob)
-       # ob.select_set(True)
 
 
 SZ_FLOAT = struct.calcsize('f')

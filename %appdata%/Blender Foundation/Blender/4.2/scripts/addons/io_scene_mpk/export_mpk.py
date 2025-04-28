@@ -26,10 +26,10 @@ def save_mpk(filepath, context, use_default, use_optimize, use_all, use_selectio
 
     try: file = open(filepath, 'wb')
     except:
-        info('access denied : ' + filepath, icon='ERROR')
+        info('access denied : \'' + filepath + '\'', icon='ERROR')
         return
 
-    print("exporting MPK: %r..." % (filepath))
+    print("exporting MPK: %r..." % filepath)
 
     duration = time.time()
     context.window.cursor_set('WAIT')
