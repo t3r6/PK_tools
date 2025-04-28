@@ -423,7 +423,6 @@ def BuildMesh(geom):
         'antyp',
         'barrier',
         'monster',
-        'physdest',
         'portal',
         'volfog',
         'vollight',

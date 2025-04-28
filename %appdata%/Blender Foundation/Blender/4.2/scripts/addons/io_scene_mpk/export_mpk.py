@@ -14,7 +14,7 @@ from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 def load(operator, context, filepath="", use_default=True, use_optimize=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
 
     global info
-    
+
     def info(msg='', icon='INFO'): operator.report({icon}, 'MPK Export : ' + msg)
 
     save_mpk(filepath, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix)
