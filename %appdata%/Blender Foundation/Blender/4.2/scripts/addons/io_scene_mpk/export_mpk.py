@@ -11,7 +11,7 @@ import bpy_extras
 from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 
 
-def load(operator, context, filepath="", use_default=True, use_optimize=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
+def load(operator, context, filepath='', use_default=True, use_optimize=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
 
     global info
 
@@ -29,7 +29,7 @@ def save_mpk(filepath, context, use_default, use_optimize, use_all, use_selectio
         info('access denied : \'' + filepath + '\'', icon='ERROR')
         return
 
-    print("exporting MPK: %r..." % filepath)
+    print('exporting MPK: %r...' % filepath)
 
     duration = time.time()
     context.window.cursor_set('WAIT')
@@ -47,7 +47,7 @@ def save_mpk(filepath, context, use_default, use_optimize, use_all, use_selectio
     file.close()
 
     context.window.cursor_set('DEFAULT')
-    print("MPK export time: %.2f" % (time.time() - duration))
+    print('MPK export time: %.2f' % (time.time() - duration))
 
 
 SZ_SHORT = 2
@@ -56,7 +56,7 @@ SZ_FLOAT = 4
 
 
 def writeString(file,name):
-    value = name.encode('iso-8859-1', "replace")
+    value = name.encode('iso-8859-1', 'replace')
     binary_format = '<%ds' % (len(value) + 1)
     file.write(struct.pack(binary_format, value))
 
@@ -152,11 +152,11 @@ def ConvertToMPKFaces( mesh, use_default, use_optimize ):
             normal_source = mesh.corner_normals
         case _:
             # Unreachable
-            raise AssertionError("Unexpected normals domain '%s'" % mesh.normals_domain)
+            raise AssertionError('Unexpected normals domain \'%s\'' % mesh.normals_domain)
 
     np.empty(len(normal_source) * 3, dtype=[])
     t_normal = np.empty(len(normal_source) * 3, dtype=np.single)
-    normal_source.foreach_get("vector", t_normal)
+    normal_source.foreach_get('vector', t_normal)
 
     uvl_1 = mesh.uv_layers[0].data[:] if len(mesh.uv_layers) > 0 else None
     uvl_2 = mesh.uv_layers[1].data[:] if len(mesh.uv_layers) > 1 else None
@@ -306,10 +306,10 @@ def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_
         verts, faces = ConvertToMPKFaces( mesh, use_default, use_optimize )
 
         if len(verts)>0xffff:
-            info("\'%s\' is rejected : too many vertices (> 64K)" % ob.name, icon='WARNING')
+            info('\'%s\' is rejected : too many vertices (> 64K)' % ob.name, icon='WARNING')
             continue
         if len(faces)>0xffff:
-            info("\'%s\' is rejected : too many faces (> 64K)" % ob.name, icon='WARNING')
+            info('\'%s\' is rejected : too many faces (> 64K)' % ob.name, icon='WARNING')
             continue
 
         mtls = {}; _idx = None; i=0
@@ -329,7 +329,7 @@ def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_
                 assert(mtl_offset<=0xffff)
                 mtl_offset += mtl[0]*3
         except:
-            info("\'%s\' is rejected : too many faces" % ob.name, icon='WARNING')
+            info('\'%s\' is rejected : too many faces' % ob.name, icon='WARNING')
             continue
 
         materials = ([getMaterial(None)],[])[bool(ob.material_slots)]

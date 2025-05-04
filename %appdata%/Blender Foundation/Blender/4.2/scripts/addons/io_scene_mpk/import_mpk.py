@@ -68,10 +68,21 @@ class Material:
     alphaTiling: UV
 
 
-def load(operator, context, filepath="", use_lightmaps=True, use_blendmaps=True, remove_doubles=True):
+zone = [
+    'antyp',
+    'barrier',
+    'monster',
+    'portal',
+    'volfog',
+    'vollight',
+    'zone',
+]
+
+
+def load(operator, context, filepath='', use_lightmaps=True, use_blendmaps=True, remove_doubles=True):
 
     global info
-    
+
     def info(msg='', icon='INFO'): operator.report({icon}, 'MPK Import : ' + msg)
 
     load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles)
@@ -121,7 +132,7 @@ def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
         info('no such file: \'' + filepath + '\'', icon='ERROR')
         return
 
-    print("importing MPK: %r..." % filepath)
+    print('importing MPK: %r...' % filepath)
 
     duration = time.time()
     context.window.cursor_set('WAIT')
@@ -135,13 +146,13 @@ def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
     file.close()
 
     context.window.cursor_set('DEFAULT')
-    print("MPK import time: %.2f" % (time.time() - duration))
+    print('MPK import time: %.2f' % (time.time() - duration))
 
 
 def read_mesh(file):
     global dirname
     dirname = os.path.dirname(file.name)
-    
+
     file.seek(-8, io.SEEK_END)
     numobj = read_long(file)
 
@@ -159,7 +170,7 @@ def read_mesh(file):
         geom = Mesh('', 0, 0, [], 0, [], 0, [])
         CacheMesh(file, addr[i] + 4, geom)
         BuildMesh(geom)
-    
+
     if bRemoveDoubles:
         if bpy.context.view_layer.objects.active is not None: bpy.ops.object.mode_set(mode='OBJECT')
         bpy.ops.object.select_all(action='SELECT')
@@ -175,10 +186,8 @@ def read_mesh(file):
 
     try:
         for ob in bpy.data.collections['___zone___'].all_objects:
-            bpy.context.view_layer.objects.active = ob
-            bpy.ops.mesh.customdata_custom_splitnormals_clear()
             ob.select_set(True)
-            bpy.ops.object.shade_flat()
+        bpy.ops.object.shade_flat()
         bpy.ops.object.select_all(action='DESELECT')
     except: pass
 
@@ -345,6 +354,7 @@ def BuildMesh(geom):
         colorScale = (1 / geom.mat[i].colorTiling.u, 1 / geom.mat[i].colorTiling.v, 1)
         blendOffset = (geom.mat[i].blendOffset.u, geom.mat[i].blendOffset.v, 0)
         blendScale = (1 / geom.mat[i].blendTiling.u, 1 / geom.mat[i].blendTiling.v, 1)
+
         mapto = 'DIFFUSE'
         addtex = True
 
@@ -367,7 +377,7 @@ def BuildMesh(geom):
             and geom.numchannels == 2
         ):
             light = read_texture_image(geom.mat[i].lightMapName)
-        
+
         if bool(light) or mapto == 'BLEND':
             matname = 'mtl_' + geom.meshname + '_' + str(i+1)
             bmat = bpy.data.materials.new(matname)
@@ -381,7 +391,7 @@ def BuildMesh(geom):
             else:
                 bmat = bpy.data.materials.new(matname)
                 mtl_cache[matname] = bmat
-            
+
         if addtex:
             wrapper = PrincipledBSDFWrapper(bmat, is_readonly=False, use_nodes=True)
 
@@ -410,20 +420,11 @@ def BuildMesh(geom):
     mesh.update()
 
     mesh.polygons.foreach_set('use_smooth', [True] * len(mesh.polygons))
-    mesh.normals_split_custom_set_from_vertices(_normals)
+    if not re.search(r'(?=(' + '|'.join(zone) + r'))', geom.meshname, re.IGNORECASE):
+        mesh.normals_split_custom_set_from_vertices(_normals)
 
     # COLLECTIONS
     ob = bpy.data.objects.new(geom.meshname, mesh)
-
-    zone = [
-        'antyp',
-        'barrier',
-        'monster',
-        'portal',
-        'volfog',
-        'vollight',
-        'zone',
-    ]
     if re.search(r'(?=(' + '|'.join(zone) + r'))', geom.meshname, re.IGNORECASE):
         try:
             col = bpy.data.collections['___zone___']
@@ -433,11 +434,12 @@ def BuildMesh(geom):
             bpy.context.scene.collection.children.link(col)
             col.objects.link(ob)
     elif len(geom.mat[0].lightMapName) > 0 and geom.numchannels == 2:
+        colname = os.path.basename(geom.mat[0].lightMapName).split('.', 1)[0]
         try:
-            col = bpy.data.collections[geom.mat[0].lightMapName]
+            col = bpy.data.collections[colname]
             col.objects.link(ob)
         except:
-            col = bpy.data.collections.new(geom.mat[0].lightMapName)
+            col = bpy.data.collections.new(colname)
             bpy.context.scene.collection.children.link(col)
             col.objects.link(ob)
     elif geom.numchannels == 1:
@@ -468,7 +470,7 @@ def readString(file):
     outstring = file.read(strlen)
     return outstring[:-1].decode('iso-8859-1')
 
-	
+
 def read_short(file):
     temp_data = file.read(SZ_U_SHORT)
     return struct.unpack('<H', temp_data)[0]
@@ -545,7 +547,7 @@ def add_texture_to_material(
     img_wrap = wrapper.base_color_texture
     img_wrap.image = color
     img_wrap.extension = 'REPEAT'
-    
+
     mixer = None
 
     if mapto == 'BLEND':
@@ -619,7 +621,7 @@ def add_texture_to_material(
         multiplier.blend_type = 'MULTIPLY'
         multiplier.inputs['Fac'].default_value = 0.995
         if mapto == 'BLEND':
-            wrapper._grid_to_location(-1, -2.4, dst_node=lightMap, ref_node=shader)   
+            wrapper._grid_to_location(-1, -2.4, dst_node=lightMap, ref_node=shader)
             wrapper._grid_to_location(-2, -2.4, dst_node=uv_map_node, ref_node=shader)
             links.new(mixer.outputs['Color'], multiplier.inputs['Color1'])
         else:
@@ -632,4 +634,3 @@ def add_texture_to_material(
 
     shader.location = (1200, 0)
     wrapper._grid_to_location(1, 0, dst_node=wrapper.node_out, ref_node=shader)
-    
