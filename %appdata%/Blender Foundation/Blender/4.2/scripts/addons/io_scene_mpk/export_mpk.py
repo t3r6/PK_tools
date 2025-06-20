@@ -16,15 +16,13 @@ def load(operator, context, filepath='', use_default=True, use_optimize=False, u
     global info
 
     def info(msg='', icon='INFO'): operator.report({icon}, 'MPK Export : ' + msg)
-    
-    global bDefault; bDefault = use_default
-    global bOptimize; bOptimize = use_optimize
 
-    global bAll; bAll = use_all
+    global bDefault;   bDefault   = use_default
+    global bOptimize;  bOptimize  = use_optimize
+    global bAll;       bAll       = use_all
     global bSelection; bSelection = use_selection
-    global bVisible; bVisible = use_visible
-    
-    global bSort; bSort = use_sort
+    global bVisible;   bVisible   = use_visible
+    global bSort;      bSort      = use_sort
 
     save_mpk(filepath, context, global_matrix)
 
