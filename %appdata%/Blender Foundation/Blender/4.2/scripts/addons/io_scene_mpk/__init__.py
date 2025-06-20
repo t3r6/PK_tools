@@ -17,7 +17,7 @@ import bpy
 bl_info = {
     "name": "Painkiller MPK format",
     "author": "dilettante",
-    "version": (3, 0, 0),
+    "version": (3, 5, 0),
     "blender": (4, 2, 2),
     "location": "File > Import-Export",
     "description": "Painkiller WorldMesh Import/Export",
@@ -35,13 +35,13 @@ if "bpy" in locals():
 
 
 class ImportMPK(bpy.types.Operator, ImportHelper):
-    """Import from MPK file format (.mpk)"""
+    """Import from MPK/DAT file format (.mpk/.dat)"""
     bl_idname = "import_scene.pkmpk"
-    bl_label = 'Import MPK'
+    bl_label = 'Import MPK/DAT'
     bl_options = {'PRESET', 'UNDO'}
 
     filename_ext = ".mpk"
-    filter_glob: StringProperty(default="*.mpk", options={'HIDDEN'})
+    filter_glob: StringProperty(default="*.mpk;*.dat", options={'HIDDEN'})
 
     use_lightmaps : BoolProperty(
             name = "Enable lightmaps",
@@ -154,6 +154,11 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
             default = False,
             update = _selection_switch )
 
+    use_sort: BoolProperty(
+            name="Sort",
+            description="Sort faces by materials",
+            default = False )
+
     def execute(self, context):
         from . import export_mpk
 
@@ -173,17 +178,20 @@ class ExportMPK(bpy.types.Operator, ExportHelper):
         return export_mpk.load(self, context, **keywords)
 
     def draw(self, context):
-        box = self.layout.box()
-        box.prop( self, 'use_default' )
-        box.prop( self, 'use_optimize' )
-        box.prop( self, 'use_all' )
-        box.prop( self, 'use_selection' )
-        box.prop( self, 'use_visible' )
+        box1 = self.layout.box()
+        box1.prop( self, 'use_default' )
+        box1.prop( self, 'use_optimize' )
+        box2 = self.layout.box()
+        box2.prop( self, 'use_all' )
+        box2.prop( self, 'use_selection' )
+        box2.prop( self, 'use_visible' )        
+        box3 = self.layout.box()
+        box3.prop( self, 'use_sort' )
 
 
 # Add to a menu
 def menu_func_import(self, context):
-    self.layout.operator(ImportMPK.bl_idname, text="Painkiller WorldMesh (.mpk)")
+    self.layout.operator(ImportMPK.bl_idname, text="Painkiller WorldMesh (.mpk/.dat)")
 
 
 def menu_func_export(self, context):

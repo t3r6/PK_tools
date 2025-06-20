@@ -11,18 +11,27 @@ import bpy_extras
 from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 
 
-def load(operator, context, filepath='', use_default=True, use_optimize=False, use_all=True, use_selection=False, use_visible=False, global_matrix=None):
+def load(operator, context, filepath='', use_default=True, use_optimize=False, use_all=True, use_selection=False, use_visible=False, use_sort=False, global_matrix=None):
 
     global info
 
     def info(msg='', icon='INFO'): operator.report({icon}, 'MPK Export : ' + msg)
+    
+    global bDefault; bDefault = use_default
+    global bOptimize; bOptimize = use_optimize
 
-    save_mpk(filepath, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix)
+    global bAll; bAll = use_all
+    global bSelection; bSelection = use_selection
+    global bVisible; bVisible = use_visible
+    
+    global bSort; bSort = use_sort
+
+    save_mpk(filepath, context, global_matrix)
 
     return {'FINISHED'}
 
 
-def save_mpk(filepath, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix):
+def save_mpk(filepath, context, global_matrix):
 
     try: file = open(filepath, 'wb')
     except:
@@ -35,7 +44,7 @@ def save_mpk(filepath, context, use_default, use_optimize, use_all, use_selectio
     context.window.cursor_set('WAIT')
 
     try:
-        meshoffset = doexp(file, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix)
+        meshoffset = doexp(file, context, global_matrix)
         for offset in meshoffset:
             write_long(file, offset)
         write_long(file, len(meshoffset))
@@ -127,10 +136,13 @@ def getMaterial(mtl):
     return material
 
 
-def triangulate_object(mesh):
+def triangulate_object( mesh ):
     bm = bmesh.new()
     bm.from_mesh(mesh)
     bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    if bSort:
+        bm.faces.sort(key=lambda f: f.material_index)
+        bm.faces.index_update()
     bm.to_mesh(mesh)
     bm.free()
 
@@ -144,7 +156,7 @@ def _map_n_pack( verts ):
     return output
 
 
-def ConvertToMPKFaces( mesh, use_default, use_optimize ):
+def ConvertToMPKFaces( mesh ):
     match mesh.normals_domain:
         case 'POINT':
             normal_source = mesh.vertex_normals
@@ -188,7 +200,7 @@ def ConvertToMPKFaces( mesh, use_default, use_optimize ):
             for iii in range(3):
                 vn.append(t_normal[idx + iii])
             normal = mathutils.Vector(vn)
-            if use_default:
+            if bDefault:
                 key = struct.pack('<10f', x, z, -y, normal[0], normal[2], -normal[1], uv1[0], 1-uv1[1], uv2[0], 1-uv2[1])
                 double = vWritten.get(v)
                 if bool(double):
@@ -205,7 +217,7 @@ def ConvertToMPKFaces( mesh, use_default, use_optimize ):
                     vWritten[v] = [{key : len(verts)}]
                     face.append(len(verts))
                     verts.append(key)
-            if use_optimize:
+            elif bOptimize:
                 key = struct.pack('<7f', x, z, -y, uv1[0], 1-uv1[1], uv2[0], 1-uv2[1])
                 double = vWritten.get(key)
                 if bool(double):
@@ -227,13 +239,13 @@ def ConvertToMPKFaces( mesh, use_default, use_optimize ):
                     vert[key] = normal
                     verts.append(vert)
         faces.append(face)
-    if use_default:
+    if bDefault:
         return verts, faces
-    elif use_optimize:
+    elif bOptimize:
         return _map_n_pack(verts), faces
 
 
-def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_visible, global_matrix):
+def doexp(file, context, global_matrix):
 
     scene = context.scene
     layer = context.view_layer
@@ -268,11 +280,11 @@ def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_
 
     object_filter={'WORLD', 'MESH'}
 
-    if use_selection:
+    if bSelection:
         objects = [ob for ob in scene.objects if ob.type in object_filter and ob.visible_get(view_layer=layer) and ob.select_get(view_layer=layer)]
-    elif use_visible:
+    elif bVisible:
         objects = [ob for ob in scene.objects if ob.type in object_filter and ob.visible_get(view_layer=layer)]
-    elif use_all:
+    elif bAll:
         objects = [ob for ob in scene.objects if ob.type in object_filter]
 
     for ob in objects:
@@ -303,7 +315,7 @@ def doexp(file, context, use_default, use_optimize, use_all, use_selection, use_
     for ob, mesh, matrix in mesh_objects:
         triangulate_object( mesh )
 
-        verts, faces = ConvertToMPKFaces( mesh, use_default, use_optimize )
+        verts, faces = ConvertToMPKFaces( mesh )
 
         if len(verts)>0xffff:
             info('\'%s\' is rejected : too many vertices (> 64K)' % ob.name, icon='WARNING')

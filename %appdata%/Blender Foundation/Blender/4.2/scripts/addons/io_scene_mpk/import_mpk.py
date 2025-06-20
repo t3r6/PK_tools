@@ -9,6 +9,7 @@ import time
 from bpy_extras import image_utils
 from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -21,6 +22,11 @@ class Mesh:
     faces: []
     nummat: int
     mat: []
+
+    type: int
+    index: int
+    size: int
+    offset: int
 
 
 @dataclass
@@ -81,9 +87,11 @@ zone = [
 
 def load(operator, context, filepath='', use_lightmaps=True, use_blendmaps=True, remove_doubles=True):
 
+    global filetype; filetype = Path(filepath).suffix.split('.')[-1].upper()
+
     global info
 
-    def info(msg='', icon='INFO'): operator.report({icon}, 'MPK Import : ' + msg)
+    def info(msg='', icon='INFO'): operator.report({icon}, f'{filetype} Import : {msg}')
 
     load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles)
 
@@ -132,24 +140,68 @@ def load_mpk(filepath, context, use_lightmaps, use_blendmaps, remove_doubles):
         info('no such file: \'' + filepath + '\'', icon='ERROR')
         return
 
-    print('importing MPK: %r...' % filepath)
+    print(f'importing {filetype}: \'{filepath}\'...')
 
     duration = time.time()
     context.window.cursor_set('WAIT')
 
     try:
-        read_mesh(file)
+        match filetype:
+            case 'MPK': read_mesh_MPK(file)
+            case 'DAT': read_mesh_DAT(file)
+        try:
+            for ob in bpy.data.collections['___zone___'].all_objects:
+                ob.select_set(True)
+            bpy.ops.object.shade_flat()
+            bpy.ops.object.select_all(action='DESELECT')
+        except: pass        
+        if bRemoveDoubles: RemoveDoubles()
+        
         info('success', icon='INFO')
     except:
         info('something went wrong', icon='ERROR')
 
     file.close()
 
+    try:
+        view_3d = [area for area in bpy.context.window.screen.areas if area.type == 'VIEW_3D'][0]
+        with bpy.context.temp_override(area=view_3d):
+            bpy.context.space_data.shading.show_backface_culling = True
+    except: pass
+
     context.window.cursor_set('DEFAULT')
-    print('MPK import time: %.2f' % (time.time() - duration))
+    print(f'{filetype} import time: %.2f' % (time.time() - duration))
 
 
-def read_mesh(file):
+def RemoveDoubles():
+    if bpy.context.view_layer.objects.active is not None: bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='SELECT')
+    for obj in bpy.context.view_layer.objects:
+        if obj.type == 'MESH':
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+            bpy.ops.mesh.remove_doubles(threshold = 0.0001, use_sharp_edge_from_normals=True)
+            bpy.ops.object.mode_set(mode='OBJECT')
+            break
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = None
+
+
+def read_mesh_DAT(file):
+    global dirname
+    dirname = os.path.dirname(file.name)
+    geometry = CacheMeshDAT(file)
+
+    global mtl_cache
+    global image_cache
+    mtl_cache = {}
+    image_cache = {}
+    
+    for geom in geometry: BuildMesh(geom)
+
+
+def read_mesh_MPK(file):
     global dirname
     dirname = os.path.dirname(file.name)
 
@@ -167,31 +219,9 @@ def read_mesh(file):
     mtl_cache = {}
     image_cache = {}
     for i in range(numobj):
-        geom = Mesh('', 0, 0, [], 0, [], 0, [])
-        CacheMesh(file, addr[i] + 4, geom)
+        geom = Mesh('', 0, 0, [], 0, [], 0, [], 0x02, 0, 0, 0)
+        CacheMeshMPK(file, addr[i] + 4, geom)
         BuildMesh(geom)
-
-    if bRemoveDoubles:
-        if bpy.context.view_layer.objects.active is not None: bpy.ops.object.mode_set(mode='OBJECT')
-        bpy.ops.object.select_all(action='SELECT')
-        for obj in bpy.context.view_layer.objects:
-            if obj.type == 'MESH':
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-                bpy.ops.mesh.remove_doubles(threshold = 0.0001, use_sharp_edge_from_normals=True)
-                bpy.ops.object.mode_set(mode='OBJECT')
-                break
-        bpy.ops.object.select_all(action='DESELECT')
-
-    try:
-        for ob in bpy.data.collections['___zone___'].all_objects:
-            ob.select_set(True)
-        bpy.ops.object.shade_flat()
-        bpy.ops.object.select_all(action='DESELECT')
-    except: pass
-
-    bpy.context.view_layer.objects.active = None
 
 
 def dummyMat(geom):
@@ -204,7 +234,223 @@ def dummyMat(geom):
     geom.mat.append(mat)
 
 
-def CacheMesh(file, addr, geom):
+def CacheMeshDAT(file):
+    pkspc = mathutils.Matrix(( (1,0,0,0),(0,0,-1,0),(0,1,0,0),(0,0,0,0) ))
+    file.seek(0, io.SEEK_SET)
+    namelist = []
+    for i in range(read_long(file)):
+        namelist.append(readString(file))
+
+    numobj = read_long(file)
+    geometry = []
+    for i in range(numobj):    
+        geometry.append(Mesh('', 0, 0, [], 0, [], 0, [], 0x02, 0, 0, 0))
+        temp = read_long(file) # 00 00 00 00
+        geometry[i].type = read_long(file)
+        index = read_long(file)
+        geometry[i].index = index
+        geometry[i].meshname = namelist[index]
+        geometry[i].size = read_long(file)
+        geometry[i].offset = read_long(file)
+
+    for i in range(numobj):
+        file.seek(geometry[i].offset, io.SEEK_SET)
+        if geometry[i].index == 0:
+            geometry[i].meshname = readString(file)
+            if   geometry[i].type == 1: # reg
+                geometry[i].type = 0x02;
+            elif geometry[i].type == 2: # zone
+                geometry[i].type = 0x04;
+            elif geometry[i].type == 3: # portal
+                geometry[i].type = 0x08;
+            elif geometry[i].type == 4: # antyp
+                geometry[i].type = 0x10;
+        else:
+            readString(file)
+
+        if geometry[i].type == 0x02:
+            geometry[i].numchannels = 1 if read_long(file) & 0x0400 else 2
+
+        # ANTYP : is not used in any of the original files
+        if geometry[i].type == 0x10:
+            dummyMat(geometry[i])            
+            geometry[i].numchannels = 1
+            
+            geometry[i].numVerts = read_long(file)
+            for ii in range(geometry[i].numVerts):
+                pt = pkspc @ mathutils.Vector((read_float(file),read_float(file),read_float(file)))
+                geometry[i].verts.append(Vertex(pt.x, pt.y, pt.z, 0,0,0,0,0,0,0))
+
+            geometry[i].numFaces = int(read_long(file) / 3)
+            for ii in range(geometry[i].numFaces):
+                v0, v1, v2 = read_short(file), read_short(file), read_short(file)
+                geometry[i].faces.append(Face(v0, v2, v1))
+            continue
+
+        # bounding box
+        bbox = [
+            pkspc @ mathutils.Vector((read_float(file),read_float(file),read_float(file))),
+            pkspc @ mathutils.Vector((read_float(file),read_float(file),read_float(file))),
+            ]
+
+        # ZONE
+        if geometry[i].type == 0x04:
+            dummyMat(geometry[i])            
+            geometry[i].numchannels = 1
+            
+            geometry[i].numVerts = 8
+            geometry[i].verts.append(Vertex(bbox[0].x, bbox[0].y, bbox[0].z, 0,0,0,0,0,0,0))
+            geometry[i].verts.append(Vertex(bbox[1].x, bbox[0].y, bbox[0].z, 0,0,0,0,0,0,0))
+            geometry[i].verts.append(Vertex(bbox[0].x, bbox[1].y, bbox[0].z, 0,0,0,0,0,0,0))
+            geometry[i].verts.append(Vertex(bbox[1].x, bbox[1].y, bbox[0].z, 0,0,0,0,0,0,0))
+            geometry[i].verts.append(Vertex(bbox[0].x, bbox[0].y, bbox[1].z, 0,0,0,0,0,0,0))
+            geometry[i].verts.append(Vertex(bbox[1].x, bbox[0].y, bbox[1].z, 0,0,0,0,0,0,0))
+            geometry[i].verts.append(Vertex(bbox[0].x, bbox[1].y, bbox[1].z, 0,0,0,0,0,0,0))
+            geometry[i].verts.append(Vertex(bbox[1].x, bbox[1].y, bbox[1].z, 0,0,0,0,0,0,0))
+            
+            geometry[i].numFaces = 12
+            geometry[i].faces.append(Face(0, 3, 2))
+            geometry[i].faces.append(Face(3, 0, 1))
+            geometry[i].faces.append(Face(4, 7, 5))
+            geometry[i].faces.append(Face(7, 4, 6))
+            geometry[i].faces.append(Face(0, 5, 1))
+            geometry[i].faces.append(Face(5, 0, 4))
+            geometry[i].faces.append(Face(1, 7, 3))
+            geometry[i].faces.append(Face(7, 1, 5))
+            geometry[i].faces.append(Face(3, 6, 2))
+            geometry[i].faces.append(Face(6, 3, 7))
+            geometry[i].faces.append(Face(2, 4, 0))
+            geometry[i].faces.append(Face(4, 2, 6))
+            
+            continue
+
+        # PORTAL
+        if geometry[i].type == 0x08:
+            dummyMat(geometry[i])            
+            geometry[i].numchannels = 1
+            
+            geometry[i].numFaces = 2
+            geometry[i].faces.append(Face(0, 2, 1))
+            geometry[i].faces.append(Face(0, 3, 2))
+            
+            geometry[i].numVerts = read_long(file)
+            for ii in range(geometry[i].numVerts):
+                pt = pkspc @ mathutils.Vector((read_float(file),read_float(file),read_float(file)))
+                vert = Vertex(pt.x, pt.y, pt.z, 0,0,0,0,0,0,0)
+                geometry[i].verts.append(vert)
+            continue
+
+        # matrix
+        file.seek(64, io.SEEK_CUR)
+        
+        # 00 00 00 00 - ?
+        file.seek(4, io.SEEK_CUR)
+
+        # materials
+        lightmap = Path(readString(file)).stem
+        notex = readString(file)
+        geometry[i].nummat = read_long(file)
+        for ii in range(geometry[i].nummat):
+            colormap = Path(readString(file)).stem
+            offset = read_long(file)
+            size = read_long(file)
+            mat = Material(offset, size,
+                colormap, UV(0, 0), UV(1, 1),
+                lightmap, UV(0, 0), UV(1, 1),
+                '', UV(0, 0), UV(1, 1),
+                '', UV(0, 0), UV(1, 1),
+            )
+            geometry[i].mat.append(mat)
+
+        # dummy material
+        if geometry[i].nummat == 0: dummyMat(geometry[i])
+
+        # faces
+        num_verts = read_long(file)
+        if (num_verts % 3) == 0:
+            geometry[i].numFaces = int(num_verts / 3)
+            for ii in range(geometry[i].numFaces):
+                v0, v1, v2 = read_short(file), read_short(file), read_short(file)
+                geometry[i].faces.append(Face(v0, v2, v1))
+        else:
+            file.seek(SZ_U_SHORT*num_verts, io.SEEK_CUR)
+
+        # triangle strip
+        num_verts = read_long(file)
+        if num_verts > 0:
+            faces = []
+            vl = [None for ii in range(num_verts)] #vertlist
+            k = 0
+            offset = geometry[i].mat[k].offset;
+            length = geometry[i].mat[k].size + 2;
+            for j in range(num_verts):
+                if j == length:
+                    k += 1
+                    try:
+                        offset = geometry[i].mat[k].offset
+                        length = geometry[i].mat[k].size + 2
+                    except: break
+                    
+                vl[j] = read_short(file)
+                if (vl[j - 2] == vl[j - 1] or vl[j - 1] == vl[j - 0] or vl[j - 2] == vl[j - 0]) or j < offset + 2 or j > length: continue
+                
+                face = Face(0, 0, 0)
+                if (j - offset) % 2 == 0:
+                    face.v0 = vl[j - 0]
+                    face.v1 = vl[j - 1]
+                    face.v2 = vl[j - 2]
+                else:
+                    face.v0 = vl[j - 2]
+                    face.v1 = vl[j - 1]
+                    face.v2 = vl[j - 0]
+                faces.append(face)
+            geometry[i].numFaces = len(faces)
+            geometry[i].faces = faces
+        
+        # coords
+        geometry[i].numVerts = read_long(file)
+        for ii in range(geometry[i].numVerts):
+            vert = Vertex(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+            vert.x = read_float(file)
+            vert.z = read_float(file)
+            vert.y = -read_float(file)
+
+            if geometry[i].numchannels == 2:
+                file.seek(4, io.SEEK_CUR)  # 00 00 00 00
+                vert.u = read_float(file)
+                vert.v = 1 - read_float(file)
+                vert.u2 = read_float(file)
+                vert.v2 = 1 - read_float(file)
+            else:
+                vert.nx = read_float(file)
+                vert.nz = read_float(file)
+                vert.ny = -read_float(file)
+                vert.u = read_float(file)
+                vert.v = 1 - read_float(file)
+            geometry[i].verts.append(vert)
+        # normals (if the 2nd UV channel is present)
+        nrmls = read_long(file)
+        for ii in range(nrmls):
+            geometry[i].verts[ii].nx = read_float(file)
+            geometry[i].verts[ii].nz = read_float(file)
+            geometry[i].verts[ii].ny = -read_float(file)
+
+        # vertex index out of range fix (2domCALY.dat)
+        for ii in range(geometry[i].numFaces):
+            face = geometry[i].faces[ii]
+            if face.v0 > geometry[i].numVerts: face.v0 = 0
+            if face.v1 > geometry[i].numVerts: face.v1 = 0
+            if face.v2 > geometry[i].numVerts: face.v2 = 0
+
+        # tangents
+        temp = read_long(file)
+        for ii in range(temp):
+            file.read(8*SZ_FLOAT)
+    
+    return geometry
+
+
+def CacheMeshMPK(file, addr, geom):
     file.seek(addr, io.SEEK_SET)
     geom.meshname = readString(file)
 
