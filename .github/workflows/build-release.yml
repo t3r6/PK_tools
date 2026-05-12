@@ -8,14 +8,12 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build_and_release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -33,6 +31,15 @@ jobs:
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
           echo "archive_name=io_scene_pk2004-${TAG_NAME}.zip" >> $GITHUB_OUTPUT
 
+      - name: Delete existing release and tag
+        if: steps.meta.outputs.tag_name == 'latest' || steps.meta.outputs.tag_name == 'dev'
+        run: |
+          TAG="${{ steps.meta.outputs.tag_name }}"
+          # Delete release if it exists (ignore errors)
+          gh release delete "$TAG" --yes --cleanup-tag || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Archive Release
         uses: thedoctor0/zip-release@0.7.6
         with:
@@ -47,7 +54,9 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag_name }}
           name: ${{ steps.meta.outputs.tag_name == 'latest' && 'PK Blender plugins latest' || format('PK Blender plugins {0}', steps.meta.outputs.tag_name) }}
           files: ${{ steps.meta.outputs.archive_name }}
+          target_commitish: ${{ github.sha }}
           draft: false
           prerelease: ${{ steps.meta.outputs.tag_name == 'dev' }}
+          make_latest: ${{ steps.meta.outputs.tag_name == 'latest' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
