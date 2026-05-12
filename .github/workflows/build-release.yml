@@ -45,21 +45,21 @@ jobs:
           else
             TAG_NAME="latest"
           fi
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
       - name: Set archive prefix and name
         id: archive_prefix
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            PREFIX="tag-${GITHUB_REF#refs/tags/}"
+            PREFIX="${GITHUB_REF#refs/tags/}"
           elif [[ "${GITHUB_REF}" == refs/heads/* ]]; then
-            PREFIX="branch-${GITHUB_REF#refs/heads/}"
+            PREFIX="${GITHUB_REF#refs/heads/}"
           else
             PREFIX="latest"
           fi
           ARCHIVE_NAME="io_scene_pk2004-${PREFIX}.zip"
           echo "prefix=$PREFIX" >> $GITHUB_OUTPUT
           echo "archive_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
       - name: Archive Release
         uses: thedoctor0/zip-release@0.7.6
