@@ -45,6 +45,7 @@ jobs:
           else
             TAG_NAME="latest"
           fi
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
       - name: Set archive prefix and name
         id: archive_prefix
@@ -59,7 +60,6 @@ jobs:
           ARCHIVE_NAME="io_scene_pk2004-${PREFIX}.zip"
           echo "prefix=$PREFIX" >> $GITHUB_OUTPUT
           echo "archive_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
       - name: Archive Release
         uses: thedoctor0/zip-release@0.7.6
