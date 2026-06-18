@@ -7,7 +7,7 @@ from .mdlimp import load_mdl
 from .mdlimp import load_ani
 
 
-def load(operator, context, filepath='', use_lightmaps=True, use_blendmaps=True, remove_doubles=True, use_scale=False, close_seq=False):
+def load(operator, context, filepath='', use_lightmaps=True, use_blendmaps=True, remove_doubles=True, use_hierarchy=False, use_scale=False, close_seq=False):
 
     global filetype; filetype = Path(filepath).suffix.split('.')[-1].upper()
 
@@ -15,12 +15,12 @@ def load(operator, context, filepath='', use_lightmaps=True, use_blendmaps=True,
 
     def info(msg='', icon='INFO'): operator.report({icon}, f'{filetype} Import : {msg}')
 
-    load_data(filepath, context, use_lightmaps, use_blendmaps, remove_doubles, use_scale, close_seq)
+    load_data(filepath, context, use_lightmaps, use_blendmaps, remove_doubles, use_hierarchy, use_scale, close_seq)
 
     return {'FINISHED'}
 
 
-def load_data(filepath, context, use_lightmaps, use_blendmaps, remove_doubles, use_scale, close_seq):
+def load_data(filepath, context, use_lightmaps, use_blendmaps, remove_doubles, use_hierarchy, use_scale, close_seq):
 
     if bpy.ops.object.select_all.poll():
         bpy.ops.object.select_all(action='DESELECT')
@@ -63,6 +63,14 @@ def load_data(filepath, context, use_lightmaps, use_blendmaps, remove_doubles, u
         return
 
     dirname = os.path.dirname(file.name)
+    if use_hierarchy:
+        parent = Path(file.name).parent.parent
+        leaf = ''
+        match filetype:
+            case 'MPK'  : leaf = 'Levels'
+            case 'PKMDL': leaf = 'Models'
+        dirname = os.path.join(parent,'Textures',leaf)
+
     set_glob(params=(tm,bLightmaps,bBlendmaps,dirname))
 
     print(f'importing {filetype}: \'{filepath}\'...')
