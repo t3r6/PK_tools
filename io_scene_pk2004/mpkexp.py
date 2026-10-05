@@ -45,6 +45,7 @@ def dumpMPK(file, ob):
     mtl_offset = 0
     num_mtls = len(ob.mtls)
     write_long(file,num_mtls)
+    lm = None
     for i in range(num_mtls):
         write_short(file,mtl_offset)
         mtl_len = ob.mtls.get(i)[0]
@@ -59,8 +60,9 @@ def dumpMPK(file, ob):
         mapping = struct.pack('<4f', mtl.get('c_loc')[0], mtl.get('c_loc')[1], mtl.get('c_scl')[0], mtl.get('c_scl')[1])
         file.write(mapping)
         # light map : uses 2nd UV-channel
-        texName = mtl.get('light')
+        texName = (mtl.get('light'),lm)[bool(lm)]
         if texName is None: texName = fname(ob.lm)
+        lm = texName
         write_long(file,len(texName)+1)
         writeString(file,texName)
         mapping = struct.pack('<4f', 0, 0, 1, 1)
